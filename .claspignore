@@ -1,0 +1,16 @@
+# 프론트엔드 파일은 GAS에 업로드하지 않음
+**/css/**
+**/js/**
+**/index.html
+**/.git/**
+**/.gitignore
+**/.claspignore
+**/.clasp.json
+**/node_modules/**
+**/*.md
+
+# clasp가 푸시할 파일:
+#   - Code.gs
+#   - appsscript.json
+!appsscript.json
+!Code.gs

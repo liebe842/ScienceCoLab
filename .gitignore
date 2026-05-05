@@ -1,0 +1,18 @@
+# clasp 인증/설정 — GAS 스크립트 ID 노출 방지
+.clasp.json
+.clasprc.json
+
+# Node
+node_modules/
+npm-debug.log
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Editor
+.vscode/
+.idea/
+
+# Claude Code 로컬 메타데이터
+.claude/

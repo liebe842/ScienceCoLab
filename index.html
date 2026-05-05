@@ -1,0 +1,187 @@
+<!DOCTYPE html>
+<html lang="ko">
+
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>ScienceCoLab — 학교 간 공동 탐구</title>
+  <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@400;500;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="css/style.css">
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <!-- 카카오맵 API: config.js에서 키를 읽어 동적으로 로드합니다 -->
+  <script src="js/config.js"></script>
+  <script>
+    const kakaoScript = document.createElement('script');
+    kakaoScript.src = `https://dapi.kakao.com/v2/maps/sdk.js?appkey=${CONFIG.KAKAO_APP_KEY}&autoload=false`;
+    kakaoScript.onerror = () => {
+      console.error('[ScienceCoLab] 카카오 SDK 스크립트 로드 실패 — 네트워크 또는 키 확인');
+      const loading = document.getElementById('loading');
+      if (loading) loading.textContent = '카카오 SDK 로드 실패';
+    };
+    kakaoScript.onload = () => {
+      console.log('[ScienceCoLab] 카카오 SDK 스크립트 로드됨, kakao.maps.load 호출');
+      kakao.maps.load(() => {
+        console.log('[ScienceCoLab] kakao.maps.load 완료, kakaoReady dispatch');
+        window.dispatchEvent(new Event('kakaoReady'));
+      });
+    };
+    document.head.appendChild(kakaoScript);
+  </script>
+</head>
+
+<body>
+
+  <div class="header">
+    <h1>🌡️ ScienceCoLab</h1>
+    <p>학교 간 공동 탐구 — 함께 측정하고, 함께 발견해요</p>
+  </div>
+
+  <div id="map"></div>
+  <div id="loading" class="loading">데이터를 불러오는 중...</div>
+
+  <aside id="sidebar" class="sidebar">
+    <button class="close-btn" onclick="closeSidebar()">✕</button>
+    <h2 id="sb-school">학교명</h2>
+    <p class="meta" id="sb-meta">측정 일시</p>
+
+    <div class="section-title">측정값 시각화</div>
+    <div class="chart-container">
+      <div class="chart-subtitle">📊 측정 장소별 평균</div>
+      <canvas id="dataChart"></canvas>
+    </div>
+    <div class="chart-container">
+      <div class="chart-subtitle">📈 시간순 추이 <span class="chart-hint">점을 클릭하면 그 날짜 기록이 아래에 표시됩니다</span></div>
+      <canvas id="dataChartLine"></canvas>
+    </div>
+
+    <!-- 선택된 측정 기록 (기본: 최신, 차트 점 클릭 시 갱신) -->
+    <div class="sr-header">
+      <div class="sr-place" id="sr-place">📍 -</div>
+      <div class="sr-when" id="sr-when">-</div>
+      <div class="sr-stats" id="sr-stats">-</div>
+    </div>
+
+    <div class="section-title">학교 주변 환경</div>
+    <div class="tag-list" id="sb-environment"></div>
+
+    <div class="section-title">현장 사진</div>
+    <div class="sr-photo" id="sb-photos"></div>
+
+    <div class="section-title">특이사항</div>
+    <div class="notes" id="sb-notes">-</div>
+
+    <div class="sr-author" id="sb-author"></div>
+  </aside>
+
+  <!-- 사진 라이트박스 -->
+  <div id="lightbox" class="lightbox" onclick="closeLightbox(event)">
+    <img id="lightbox-img" alt="" />
+    <button type="button" class="lightbox-close" onclick="closeLightbox()" aria-label="닫기">✕</button>
+  </div>
+
+  <!-- 우측 하단 FAB: 측정 데이터 추가 -->
+  <button id="fab" class="fab" title="측정 데이터 추가" onclick="openModal()">+</button>
+
+  <!-- 입력 모달 -->
+  <div id="modalBackdrop" class="modal-backdrop">
+    <div class="modal" role="dialog" aria-labelledby="modalTitle">
+      <div class="modal-header">
+        <h2 id="modalTitle">📝 측정 데이터 입력</h2>
+        <button type="button" class="close-btn" onclick="closeModal()">✕</button>
+      </div>
+      <form id="submitForm" class="modal-form" onsubmit="handleSubmit(event)">
+        <label>
+          <span>학교 <em>*</em></span>
+          <select name="school" id="f-school" required></select>
+        </label>
+        <label>
+          <span>학교 비밀번호 <em>*</em></span>
+          <input type="password" name="password" required autocomplete="off" />
+        </label>
+        <label>
+          <span>학생 이름 <em>*</em></span>
+          <input type="text" name="studentName" required maxlength="30" />
+        </label>
+        <div class="form-row">
+          <label>
+            <span>측정 날짜 <em>*</em></span>
+            <input type="date" name="date" id="f-date" required />
+          </label>
+          <label>
+            <span>측정 시간 <em>*</em></span>
+            <input type="time" name="time" id="f-time" required />
+          </label>
+        </div>
+        <label>
+          <span>측정 장소 <em>*</em></span>
+          <select name="location" id="f-location" required>
+            <option value="">선택하세요</option>
+            <option>학교 운동장(모래)</option>
+            <option>학교 운동장(잔디)</option>
+            <option>학교 운동장 스텐드</option>
+            <option>학교 보도블럭</option>
+            <option>학교 화단</option>
+            <option>기타</option>
+          </select>
+          <input type="text" name="locationOther" id="f-location-other" class="location-other"
+            placeholder="측정 장소를 직접 입력하세요" maxlength="30" />
+        </label>
+        <div class="form-row">
+          <label>
+            <span>기온 (℃) <em>*</em></span>
+            <input type="number" name="temp" step="0.1" required />
+          </label>
+          <label>
+            <span>습도 (%) <em>*</em></span>
+            <input type="number" name="humidity" min="0" max="100" step="1" required />
+          </label>
+        </div>
+        <fieldset class="checkbox-group">
+          <legend>우리 학교의 특징 (중복 선택 가능) <em>*</em></legend>
+          <label class="cb">
+            <input type="checkbox" name="environment" value="학교에 나무가 많거나 근처에 숲이나 공원이 있다." />
+            학교에 나무가 많거나 근처에 숲이나 공원이 있다.
+          </label>
+          <label class="cb">
+            <input type="checkbox" name="environment" value="높은 건물(아파트, 빌딩)이 많다." />
+            높은 건물(아파트, 빌딩)이 많다.
+          </label>
+          <label class="cb">
+            <input type="checkbox" name="environment" value="도로에 차가 많이 다닌다." />
+            도로에 차가 많이 다닌다.
+          </label>
+          <label class="cb">
+            <input type="checkbox" name="environment" value="바다나 하천이 가깝다." />
+            바다나 하천이 가깝다.
+          </label>
+          <label class="cb">
+            <input type="checkbox" name="environment" value="기타" id="f-env-other-cb" />
+            기타
+          </label>
+          <input type="text" name="environmentOther" id="f-env-other" class="env-other"
+            placeholder="우리 학교의 특징을 직접 입력하세요" maxlength="60" />
+        </fieldset>
+        <label>
+          <span>현장 사진 <em>*</em></span>
+          <input type="file" name="photo" id="f-photo" accept="image/*" capture="environment" required />
+          <img id="photoPreview" class="photo-preview" alt="" />
+        </label>
+        <label>
+          <span>특이사항</span>
+          <textarea name="notes" rows="3" maxlength="300" placeholder="햇볕이 강했음, 바람이 세게 불었음 등"></textarea>
+        </label>
+        <div class="form-actions">
+          <button type="button" class="btn-secondary" onclick="closeModal()">취소</button>
+          <button type="submit" class="btn-primary" id="submitBtn">제출</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- 토스트 알림 -->
+  <div id="toast" class="toast"></div>
+
+  <script src="js/app.js"></script>
+</body>
+
+</html>
