@@ -16,3 +16,9 @@ Thumbs.db
 
 # Claude Code 로컬 메타데이터
 .claude/
+
+# Playwright 검증 산출물
+.playwright-mcp/
+
+# 원본 기획 데이터 (선생님 이름·예산 등 — 공개 레포에 올리지 않음)
+*.xlsx

@@ -34,6 +34,7 @@
   <div class="header">
     <h1>🌡️ ScienceCoLab</h1>
     <p>학교 간 공동 탐구 — 함께 측정하고, 함께 발견해요</p>
+    <nav class="topic-chips" id="topicChips"></nav>
   </div>
 
   <div id="map"></div>
@@ -46,7 +47,7 @@
 
     <div class="section-title">측정값 시각화</div>
     <div class="chart-container">
-      <div class="chart-subtitle">📊 측정 장소별 평균</div>
+      <div class="chart-subtitle" id="chart-bar-title">📊 측정 장소별 평균</div>
       <canvas id="dataChart"></canvas>
     </div>
     <div class="chart-container">
@@ -61,13 +62,13 @@
       <div class="sr-stats" id="sr-stats">-</div>
     </div>
 
-    <div class="section-title">학교 주변 환경</div>
+    <div class="section-title" id="sb-env-title">학교 주변 환경</div>
     <div class="tag-list" id="sb-environment"></div>
 
     <div class="section-title">현장 사진</div>
     <div class="sr-photo" id="sb-photos"></div>
 
-    <div class="section-title">특이사항</div>
+    <div class="section-title" id="sb-notes-title">특이사항</div>
     <div class="notes" id="sb-notes">-</div>
 
     <div class="sr-author" id="sb-author"></div>
@@ -181,6 +182,8 @@
   <!-- 토스트 알림 -->
   <div id="toast" class="toast"></div>
 
+  <script src="js/topics.js"></script>
+  <script src="js/mock-data.js"></script>
   <script src="js/app.js"></script>
 </body>
 

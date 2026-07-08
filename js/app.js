@@ -5,10 +5,17 @@ let markers = [];
 let chartInstance = null;
 let lineChartInstance = null;
 let schoolsData = [];
+// 주제 상태 (js/topics.js의 TOPICS 레지스트리 참조)
+let currentTopicId = 'climate';
+const topicDataCache = {};
 // 사이드바 상태
 let sidebarState = {
   school: null
 };
+
+function currentTopic() {
+  return TOPICS[currentTopicId];
+}
 
 // ─────────────────────────────────────────────
 // 초기화 (kakaoReady race condition 방어)
@@ -25,6 +32,7 @@ function initApp() {
   kakao.maps.event.addListener(map, 'zoom_changed', updateMarkerScale);
   updateMarkerScale();
 
+  renderTopicChips();
   loadData();
 }
 
@@ -70,28 +78,93 @@ if (window.kakao && window.kakao.maps && typeof kakao.maps.LatLng === 'function'
 }
 
 // ─────────────────────────────────────────────
+// 주제 칩 (지도 위 주제 전환)
+// ─────────────────────────────────────────────
+function renderTopicChips() {
+  const nav = document.getElementById('topicChips');
+  if (!nav) return;
+  nav.innerHTML = Object.values(TOPICS).map(t =>
+    `<button type="button" class="topic-chip${t.id === currentTopicId ? ' active' : ''}" data-topic="${t.id}">${t.icon} ${escapeHtml(t.label)}</button>`
+  ).join('');
+}
+
+document.addEventListener('click', (e) => {
+  const chip = e.target.closest('.topic-chip');
+  if (chip && chip.dataset.topic) switchTopic(chip.dataset.topic);
+});
+
+function switchTopic(id) {
+  if (!TOPICS[id] || id === currentTopicId) return;
+  currentTopicId = id;
+  renderTopicChips();
+  // 직접 입력(FAB/모달)은 기온·습도 주제 전용 — 다른 주제는 Google Forms로 제출
+  const fab = document.getElementById('fab');
+  if (fab) fab.style.display = currentTopic().legacy ? '' : 'none';
+  closeSidebar();
+  loadData();
+}
+
+// ─────────────────────────────────────────────
 // 데이터 로드 + 마커 렌더링
 // ─────────────────────────────────────────────
-async function loadData() {
+async function loadData(force = false) {
+  const topic = currentTopic();
   const loading = document.getElementById('loading');
+
+  // 시연 모드 (?mock=1): 백엔드 없이 가상 데이터로 렌더링
+  if (typeof MOCK_MODE !== 'undefined' && MOCK_MODE) {
+    const mock = topic.legacy ? MOCK_DATA.climate : MOCK_DATA[topic.apiTopic];
+    schoolsData = topic.legacy ? mock : mock.schools;
+    renderMarkers(schoolsData);
+    if (topic.legacy) populateSchoolSelect();
+    loading.style.display = 'none';
+    return;
+  }
+
+  if (!force && topicDataCache[topic.id]) {
+    schoolsData = topicDataCache[topic.id];
+    renderMarkers(schoolsData);
+    if (topic.legacy) populateSchoolSelect();
+    loading.style.display = 'none';
+    return;
+  }
+
   loading.style.display = 'block';
   loading.textContent = '데이터를 불러오는 중...';
 
   try {
-    const res = await fetch(CONFIG.GAS_API_URL);
+    const url = topic.apiTopic
+      ? `${CONFIG.GAS_API_URL}?topic=${encodeURIComponent(topic.apiTopic)}`
+      : CONFIG.GAS_API_URL;
+    const res = await fetch(url);
     const data = await res.json();
 
-    if (!Array.isArray(data)) {
-      throw new Error(data.error || '데이터 형식이 올바르지 않습니다');
+    let schools;
+    if (topic.legacy) {
+      if (!Array.isArray(data)) {
+        throw new Error(data.error || '데이터 형식이 올바르지 않습니다');
+      }
+      schools = data;
+    } else {
+      if (Array.isArray(data)) {
+        // 구버전 백엔드가 topic 파라미터를 무시하고 기존 데이터를 반환한 경우
+        throw new Error('백엔드가 아직 새 버전으로 배포되지 않았습니다. (관리자: GAS 재배포 필요)');
+      }
+      if (!data || data.topic !== topic.apiTopic || !Array.isArray(data.schools)) {
+        throw new Error((data && data.error) || '데이터 형식이 올바르지 않습니다');
+      }
+      schools = data.schools;
     }
 
-    schoolsData = data;
-    renderMarkers(data);
-    populateSchoolSelect();
+    topicDataCache[topic.id] = schools;
+    schoolsData = schools;
+    renderMarkers(schools);
+    if (topic.legacy) populateSchoolSelect();
     loading.style.display = 'none';
   } catch (err) {
     console.error(err);
-    loading.textContent = '데이터를 불러오지 못했습니다. 잠시 후 다시 시도해 주세요.';
+    loading.style.display = 'block';
+    loading.textContent = err.message || '데이터를 불러오지 못했습니다. 잠시 후 다시 시도해 주세요.';
   }
 }
 
@@ -102,6 +175,7 @@ function renderMarkers(schools) {
 
   if (!schools.length) return;
 
+  const topic = currentTopic();
   const bounds = new kakao.maps.LatLngBounds();
   const positions = [];
 
@@ -109,17 +183,33 @@ function renderMarkers(schools) {
     const pos = new kakao.maps.LatLng(school.lat, school.lng);
     positions.push(pos);
 
-    const count = (school.measurements || []).length;
+    const records = school.measurements || [];
+    const count = records.length;
+
+    // 주제 대표값 (학교 평균) + 값에 따른 마커 색상
+    const vals = records
+      .map(r => r[topic.marker.key])
+      .filter(v => v !== null && v !== undefined && !isNaN(v));
+    const value = vals.length ? avg(vals) : null;
+    const color = value !== null ? colorForValue(topic.marker.scale, value) : null;
+
     const el = document.createElement('div');
     el.className = 'school-marker';
     el.innerHTML = `
       <div class="sm-pin">
         <span class="sm-icon">🏫</span>
         <span class="sm-name">${escapeHtml(school.school)}</span>
+        ${value !== null ? `<span class="sm-value">${escapeHtml(topic.marker.format(value))}</span>` : ''}
         ${count > 0 ? `<span class="sm-count">${count}</span>` : ''}
       </div>
       <div class="sm-tail"></div>
     `;
+    if (color) {
+      el.querySelector('.sm-pin').style.background = color;
+      el.querySelector('.sm-tail').style.borderTopColor = color;
+      const cnt = el.querySelector('.sm-count');
+      if (cnt) cnt.style.color = color;
+    }
     el.addEventListener('click', () => openSidebar(school));
 
     const overlay = new kakao.maps.CustomOverlay({
@@ -141,10 +231,26 @@ function renderMarkers(schools) {
   }
 }
 
+// 값 → 마커 색상 (linear: 두 색 보간 / steps: 등급 구간)
+function colorForValue(scale, v) {
+  if (scale.type === 'steps') {
+    for (const s of scale.steps) {
+      if (v <= s.max) return s.color;
+    }
+    return scale.steps[scale.steps.length - 1].color;
+  }
+  const t = Math.min(1, Math.max(0, (v - scale.min) / (scale.max - scale.min)));
+  const a = hexToRgb(scale.from);
+  const b = hexToRgb(scale.to);
+  const mix = a.map((c, i) => Math.round(c + (b[i] - c) * t));
+  return `rgb(${mix[0]}, ${mix[1]}, ${mix[2]})`;
+}
+
 // ─────────────────────────────────────────────
 // 사이드바
 // ─────────────────────────────────────────────
 function openSidebar(school) {
+  const topic = currentTopic();
   const sidebar = document.getElementById('sidebar');
   const records = school.measurements || [];
   const latest = records[0];
@@ -154,8 +260,16 @@ function openSidebar(school) {
 
   document.getElementById('sb-school').textContent = school.school;
 
+  // 주제별 섹션 제목 / 특이사항 표시 여부
+  document.getElementById('sb-env-title').textContent = topic.envTitle;
+  const showNotes = !!topic.hasNotes;
+  document.getElementById('sb-notes-title').style.display = showNotes ? '' : 'none';
+  document.getElementById('sb-notes').style.display = showNotes ? '' : 'none';
+
   if (records.length === 0) {
-    document.getElementById('sb-meta').textContent = '아직 측정 기록이 없습니다 · ⊕ 버튼으로 첫 측정값을 추가해 보세요';
+    document.getElementById('sb-meta').textContent = topic.legacy
+      ? '아직 측정 기록이 없습니다 · ⊕ 버튼으로 첫 측정값을 추가해 보세요'
+      : '아직 측정 기록이 없습니다 · Google Forms로 제출하면 이곳에 표시됩니다';
     showSelectedRecord(null);
     renderLineChart([]);
     renderChart([]);
@@ -203,8 +317,36 @@ function closeSidebar() {
   document.getElementById('sidebar').classList.remove('open');
 }
 
+// 차트 축 구성: 주제 지표들이 공유하는 y축 (+ legacy 기온·습도만 y1 보조축)
+function buildChartScales(metrics, withXTicks) {
+  const scales = {
+    y: {
+      type: 'linear',
+      position: 'left',
+      title: {
+        display: true,
+        text: (metrics.find(m => (m.axis || 'y') === 'y') || metrics[0]).unit,
+        font: { size: 10 }
+      }
+    }
+  };
+  const y1Metric = metrics.find(m => m.axis === 'y1');
+  if (y1Metric) {
+    scales.y1 = {
+      type: 'linear',
+      position: 'right',
+      title: { display: true, text: y1Metric.unit, font: { size: 10 } },
+      grid: { drawOnChartArea: false }
+    };
+  }
+  if (withXTicks) {
+    scales.x = { ticks: { font: { size: 10 }, maxRotation: 0, autoSkipPadding: 12 } };
+  }
+  return scales;
+}
+
 // ─────────────────────────────────────────────
-// 꺾은선 그래프: 시간순 기온/습도 추이 + 클릭 시 상세
+// 꺾은선 그래프: 시간순 추이 + 클릭 시 상세
 // ─────────────────────────────────────────────
 function renderLineChart(records) {
   const canvas = document.getElementById('dataChartLine');
@@ -214,43 +356,32 @@ function renderLineChart(records) {
   }
   if (!records.length) return;
 
+  const topic = currentTopic();
+  const metrics = topic.chartMetrics;
+
   // 시간 오름차순으로 정렬한 사본
   const sorted = [...records].sort((a, b) => new Date(a.timestamp) - new Date(b.timestamp));
   const labels = sorted.map(r => `${(r.date || '').slice(5)} ${r.time || ''}`.trim()); // MM-DD HH:mm
-  const temps = sorted.map(r => (r.temp === null || r.temp === undefined || isNaN(r.temp)) ? null : r.temp);
-  const humids = sorted.map(r => (r.humidity === null || r.humidity === undefined || isNaN(r.humidity)) ? null : r.humidity);
+
+  const datasets = metrics.map(m => ({
+    label: m.label,
+    data: sorted.map(r => {
+      const v = r[m.key];
+      return (v === null || v === undefined || isNaN(v)) ? null : v;
+    }),
+    borderColor: m.color,
+    backgroundColor: hexToRgba(m.color, 0.15),
+    tension: 0.3,
+    pointRadius: 5,
+    pointHoverRadius: 7,
+    pointBackgroundColor: m.color,
+    yAxisID: m.axis || 'y',
+    spanGaps: true
+  }));
 
   lineChartInstance = new Chart(canvas, {
     type: 'line',
-    data: {
-      labels,
-      datasets: [
-        {
-          label: '기온 (℃)',
-          data: temps,
-          borderColor: '#d96b3e',
-          backgroundColor: 'rgba(217, 107, 62, 0.15)',
-          tension: 0.3,
-          pointRadius: 5,
-          pointHoverRadius: 7,
-          pointBackgroundColor: '#d96b3e',
-          yAxisID: 'y',
-          spanGaps: true
-        },
-        {
-          label: '습도 (%)',
-          data: humids,
-          borderColor: '#5b8def',
-          backgroundColor: 'rgba(91, 141, 239, 0.15)',
-          tension: 0.3,
-          pointRadius: 5,
-          pointHoverRadius: 7,
-          pointBackgroundColor: '#5b8def',
-          yAxisID: 'y1',
-          spanGaps: true
-        }
-      ]
-    },
+    data: { labels, datasets },
     options: {
       responsive: true,
       interaction: { mode: 'index', intersect: false },
@@ -263,28 +394,14 @@ function renderLineChart(records) {
       plugins: {
         legend: { position: 'bottom', labels: { font: { size: 11 } } }
       },
-      scales: {
-        y: {
-          type: 'linear',
-          position: 'left',
-          title: { display: true, text: '℃', font: { size: 10 } }
-        },
-        y1: {
-          type: 'linear',
-          position: 'right',
-          title: { display: true, text: '%', font: { size: 10 } },
-          grid: { drawOnChartArea: false }
-        },
-        x: {
-          ticks: { font: { size: 10 }, maxRotation: 0, autoSkipPadding: 12 }
-        }
-      }
+      scales: buildChartScales(metrics, true)
     }
   });
 }
 
-// 선택된 측정 기록 → 헤더 + 환경/사진/특이사항/측정자 영역 갱신
+// 선택된 측정 기록 → 헤더 + 태그/사진/특이사항/측정자 영역 갱신
 function showSelectedRecord(record) {
+  const topic = currentTopic();
   const $place = document.getElementById('sr-place');
   const $when  = document.getElementById('sr-when');
   const $stats = document.getElementById('sr-stats');
@@ -292,6 +409,8 @@ function showSelectedRecord(record) {
   const $photo = document.getElementById('sb-photos');
   const $notes = document.getElementById('sb-notes');
   const $auth  = document.getElementById('sb-author');
+
+  $stats.classList.toggle('compact', topic.statFields.length > 2);
 
   if (!record) {
     $place.textContent = '📍 -';
@@ -306,14 +425,23 @@ function showSelectedRecord(record) {
 
   $place.textContent = `📍 ${record.location || '-'}`;
   $when.textContent  = `${record.date || ''} ${record.time || ''}`.trim() || '-';
-  $stats.innerHTML   = `
-    <span class="sr-temp">🌡 ${formatNum(record.temp)}℃</span>
-    <span class="sr-humid">💧 ${formatNum(record.humidity)}%</span>
-  `;
+  $stats.innerHTML   = topic.statFields.map(f =>
+    `<span class="sr-stat" style="color:${f.color}">${f.icon} ${formatNum(record[f.key])}${f.unit}</span>`
+  ).join('');
 
-  const env = record.environment || [];
-  $env.innerHTML = env.length
-    ? env.map(e => `<span class="tag">${escapeHtml(e)}</span>`).join('')
+  // 태그: 주제별 필드들을 모아 표시 (배열 필드는 펼치고, label이 있으면 접두)
+  const tags = [];
+  topic.tagFields.forEach(f => {
+    const v = record[f.key];
+    const push = x => {
+      const s = String(x).trim();
+      if (s) tags.push(f.label ? `${f.label}: ${s}` : s);
+    };
+    if (Array.isArray(v)) v.forEach(push);
+    else if (v !== null && v !== undefined) push(v);
+  });
+  $env.innerHTML = tags.length
+    ? tags.map(t => `<span class="tag">${escapeHtml(t)}</span>`).join('')
     : '<span style="color:#aaa;font-size:12px;">-</span>';
 
   $photo.innerHTML = record.photoUrl
@@ -325,7 +453,7 @@ function showSelectedRecord(record) {
 }
 
 // ─────────────────────────────────────────────
-// 차트: 측정 장소별 평균 기온/습도 비교
+// 차트: 그룹(장소/재질 등)별 평균 비교
 // ─────────────────────────────────────────────
 function renderChart(records) {
   const canvas = document.getElementById('dataChart');
@@ -333,66 +461,50 @@ function renderChart(records) {
     chartInstance.destroy();
     chartInstance = null;
   }
+
+  const topic = currentTopic();
+  const barTitle = document.getElementById('chart-bar-title');
+  if (barTitle) barTitle.textContent = `📊 ${topic.groupBy.title}`;
+
   if (!records.length) return;
 
-  // 측정 장소별 그룹
+  const metrics = topic.chartMetrics;
+
+  // 그룹 기준 필드별 평균
   const groups = {};
   records.forEach(r => {
-    const key = r.location || '기타';
-    if (!groups[key]) groups[key] = { temps: [], humids: [] };
-    if (r.temp !== null && !isNaN(r.temp)) groups[key].temps.push(r.temp);
-    if (r.humidity !== null && !isNaN(r.humidity)) groups[key].humids.push(r.humidity);
+    const key = r[topic.groupBy.key] || '기타';
+    if (!groups[key]) groups[key] = metrics.map(() => []);
+    metrics.forEach((m, i) => {
+      const v = r[m.key];
+      if (v !== null && v !== undefined && !isNaN(v)) groups[key][i].push(v);
+    });
   });
 
   const labels = Object.keys(groups);
-  const tempAvg = labels.map(k => avg(groups[k].temps));
-  const humidAvg = labels.map(k => avg(groups[k].humids));
+  const datasets = metrics.map((m, i) => ({
+    label: m.label,
+    data: labels.map(k => avg(groups[k][i])),
+    backgroundColor: hexToRgba(m.color, 0.7),
+    borderRadius: 6,
+    yAxisID: m.axis || 'y'
+  }));
 
   chartInstance = new Chart(canvas, {
     type: 'bar',
-    data: {
-      labels,
-      datasets: [
-        {
-          label: '기온 (℃)',
-          data: tempAvg,
-          backgroundColor: 'rgba(217, 107, 62, 0.7)',
-          borderRadius: 6,
-          yAxisID: 'y'
-        },
-        {
-          label: '습도 (%)',
-          data: humidAvg,
-          backgroundColor: 'rgba(91, 141, 239, 0.7)',
-          borderRadius: 6,
-          yAxisID: 'y1'
-        }
-      ]
-    },
+    data: { labels, datasets },
     options: {
       responsive: true,
       plugins: {
         legend: { position: 'bottom', labels: { font: { size: 11 } } },
         title: {
           display: true,
-          text: '측정 장소별 평균',
+          text: topic.groupBy.title,
           font: { size: 12, weight: '700' },
           color: '#4a5670'
         }
       },
-      scales: {
-        y: {
-          type: 'linear',
-          position: 'left',
-          title: { display: true, text: '℃', font: { size: 10 } }
-        },
-        y1: {
-          type: 'linear',
-          position: 'right',
-          title: { display: true, text: '%', font: { size: 10 } },
-          grid: { drawOnChartArea: false }
-        }
-      }
+      scales: buildChartScales(metrics, false)
     }
   });
 }
@@ -558,7 +670,7 @@ async function handleSubmit(e) {
     } else {
       showToast('측정 데이터가 등록되었습니다 ✓', 'success');
       closeModal();
-      await loadData();
+      await loadData(true); // 캐시 무시하고 새로 불러오기
     }
   } catch (err) {
     console.error(err);
@@ -630,6 +742,14 @@ function avg(arr) {
 function formatNum(n) {
   if (n === null || n === undefined || isNaN(n)) return '-';
   return Number(n).toFixed(1).replace(/\.0$/, '');
+}
+function hexToRgb(hex) {
+  const h = hex.replace('#', '');
+  return [parseInt(h.slice(0, 2), 16), parseInt(h.slice(2, 4), 16), parseInt(h.slice(4, 6), 16)];
+}
+function hexToRgba(hex, alpha) {
+  const [r, g, b] = hexToRgb(hex);
+  return `rgba(${r}, ${g}, ${b}, ${alpha})`;
 }
 function escapeHtml(s) {
   return String(s ?? '').replace(/[&<>"']/g, c => ({
