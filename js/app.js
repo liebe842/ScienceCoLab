@@ -2,16 +2,23 @@
 
 let map;
 let markers = [];
+let clusterer = null;          // 생태지도 관찰 핀 클러스터러
 let chartInstance = null;
 let lineChartInstance = null;
 let schoolsData = [];
+let observationsData = [];      // 생태지도(pointMode) 관찰 목록
+let schoolNames = [];           // 입력 모달 학교 드롭다운용 이름 목록
 // 주제 상태 (js/topics.js의 TOPICS 레지스트리 참조)
-let currentTopicId = 'climate';
+let currentTopicId = 'heat';
 const topicDataCache = {};
 // 사이드바 상태
 let sidebarState = {
   school: null
 };
+// 생태지도 입력 상태
+let pickingLocation = false;    // 지도 클릭으로 위치 찍는 중
+let tempPin = null;             // 찍은 위치 임시 마커
+let pickedLatLng = null;        // { lat, lng }
 
 function currentTopic() {
   return TOPICS[currentTopicId];
@@ -33,7 +40,16 @@ function initApp() {
   updateMarkerScale();
 
   renderTopicChips();
+  updateFabVisibility();
+  // 생태지도 위치 찍기용 지도 클릭 리스너 (pickingLocation일 때만 동작)
+  kakao.maps.event.addListener(map, 'click', onMapClickForPick);
   loadData();
+}
+
+// 앱 입력(FAB)은 input:true 주제(생태지도)에서만 표시
+function updateFabVisibility() {
+  const fab = document.getElementById('fab');
+  if (fab) fab.style.display = currentTopic().input ? '' : 'none';
 }
 
 // 카카오맵 줌 레벨: 1(가장 확대) ~ 14(가장 축소)
@@ -95,11 +111,10 @@ document.addEventListener('click', (e) => {
 
 function switchTopic(id) {
   if (!TOPICS[id] || id === currentTopicId) return;
+  cancelEcoInput();        // 위치 찍기 중이었다면 취소
   currentTopicId = id;
   renderTopicChips();
-  // 직접 입력(FAB/모달)은 기온·습도 주제 전용 — 다른 주제는 Google Forms로 제출
-  const fab = document.getElementById('fab');
-  if (fab) fab.style.display = currentTopic().legacy ? '' : 'none';
+  updateFabVisibility();
   closeSidebar();
   loadData();
 }
@@ -113,18 +128,27 @@ async function loadData(force = false) {
 
   // 시연 모드 (?mock=1): 백엔드 없이 가상 데이터로 렌더링
   if (typeof MOCK_MODE !== 'undefined' && MOCK_MODE) {
-    const mock = topic.legacy ? MOCK_DATA.climate : MOCK_DATA[topic.apiTopic];
-    schoolsData = topic.legacy ? mock : mock.schools;
-    renderMarkers(schoolsData);
-    if (topic.legacy) populateSchoolSelect();
+    const mock = MOCK_DATA[topic.apiTopic];
+    if (topic.pointMode) {
+      observationsData = (mock && mock.observations) || [];
+      schoolNames = (mock && mock.schools) || [];
+      renderPointMarkers(observationsData);
+    } else {
+      schoolsData = (mock && mock.schools) || [];
+      renderMarkers(schoolsData);
+    }
     loading.style.display = 'none';
     return;
   }
 
   if (!force && topicDataCache[topic.id]) {
-    schoolsData = topicDataCache[topic.id];
-    renderMarkers(schoolsData);
-    if (topic.legacy) populateSchoolSelect();
+    if (topic.pointMode) {
+      observationsData = topicDataCache[topic.id];
+      renderPointMarkers(observationsData);
+    } else {
+      schoolsData = topicDataCache[topic.id];
+      renderMarkers(schoolsData);
+    }
     loading.style.display = 'none';
     return;
   }
@@ -133,33 +157,34 @@ async function loadData(force = false) {
   loading.textContent = '데이터를 불러오는 중...';
 
   try {
-    const url = topic.apiTopic
-      ? `${CONFIG.GAS_API_URL}?topic=${encodeURIComponent(topic.apiTopic)}`
-      : CONFIG.GAS_API_URL;
+    const url = `${CONFIG.GAS_API_URL}?topic=${encodeURIComponent(topic.apiTopic)}`;
     const res = await fetch(url);
     const data = await res.json();
 
-    let schools;
-    if (topic.legacy) {
-      if (!Array.isArray(data)) {
-        throw new Error(data.error || '데이터 형식이 올바르지 않습니다');
-      }
-      schools = data;
-    } else {
-      if (Array.isArray(data)) {
-        // 구버전 백엔드가 topic 파라미터를 무시하고 기존 데이터를 반환한 경우
-        throw new Error('백엔드가 아직 새 버전으로 배포되지 않았습니다. (관리자: GAS 재배포 필요)');
-      }
-      if (!data || data.topic !== topic.apiTopic || !Array.isArray(data.schools)) {
-        throw new Error((data && data.error) || '데이터 형식이 올바르지 않습니다');
-      }
-      schools = data.schools;
+    if (Array.isArray(data)) {
+      // 구버전 백엔드가 topic 파라미터를 무시하고 기존 데이터를 반환한 경우
+      throw new Error('백엔드가 아직 새 버전으로 배포되지 않았습니다. (관리자: GAS 재배포 필요)');
+    }
+    if (!data || data.topic !== topic.apiTopic) {
+      throw new Error((data && data.error) || '데이터 형식이 올바르지 않습니다');
     }
 
-    topicDataCache[topic.id] = schools;
-    schoolsData = schools;
-    renderMarkers(schools);
-    if (topic.legacy) populateSchoolSelect();
+    if (topic.pointMode) {
+      if (!Array.isArray(data.observations)) {
+        throw new Error(data.error || '관찰 데이터 형식이 올바르지 않습니다');
+      }
+      topicDataCache[topic.id] = data.observations;
+      observationsData = data.observations;
+      schoolNames = Array.isArray(data.schools) ? data.schools : [];
+      renderPointMarkers(data.observations);
+    } else {
+      if (!Array.isArray(data.schools)) {
+        throw new Error(data.error || '데이터 형식이 올바르지 않습니다');
+      }
+      topicDataCache[topic.id] = data.schools;
+      schoolsData = data.schools;
+      renderMarkers(data.schools);
+    }
     loading.style.display = 'none';
   } catch (err) {
     console.error(err);
@@ -168,10 +193,65 @@ async function loadData(force = false) {
   }
 }
 
-function renderMarkers(schools) {
-  // 기존 마커 제거
+// 지도에서 모든 마커/클러스터 제거
+function clearAllMarkers() {
   markers.forEach(m => m.setMap(null));
   markers = [];
+  if (clusterer) { clusterer.clear(); clusterer.setMap(null); clusterer = null; }
+}
+
+// 생태지도(pointMode): 관찰마다 개별 핀 + 클러스터
+function renderPointMarkers(observations) {
+  clearAllMarkers();
+  if (!observations || !observations.length) return;
+
+  const topic = currentTopic();
+  const bounds = new kakao.maps.LatLngBounds();
+  const image = ecoMarkerImage();
+
+  observations.forEach(obs => {
+    if (obs.lat == null || obs.lng == null || isNaN(obs.lat) || isNaN(obs.lng)) return;
+    const pos = new kakao.maps.LatLng(obs.lat, obs.lng);
+    const marker = new kakao.maps.Marker({
+      position: pos,
+      image: image,
+      title: topic.marker.label ? topic.marker.label(obs) : ''
+    });
+    kakao.maps.event.addListener(marker, 'click', () => {
+      openSidebar({ school: obs.species || '관찰 기록', lat: obs.lat, lng: obs.lng, measurements: [obs] });
+    });
+    markers.push(marker);
+    bounds.extend(pos);
+  });
+
+  clusterer = new kakao.maps.MarkerClusterer({
+    map: map,
+    averageCenter: true,
+    minLevel: 5,
+    gridSize: 70,
+    disableClickZoom: false
+  });
+  clusterer.addMarkers(markers);
+
+  if (markers.length === 1) map.setCenter(bounds.getSouthWest());
+  else if (markers.length > 1) map.setBounds(bounds);
+}
+
+// 생태 관찰 핀 이미지 (초록 물방울 + 흰 점)
+function ecoMarkerImage() {
+  const svg =
+    "<svg xmlns='http://www.w3.org/2000/svg' width='30' height='40' viewBox='0 0 30 40'>" +
+    "<path d='M15 0C7 0 .8 6.3.8 14.2.8 24.8 15 40 15 40s14.2-15.2 14.2-25.8C29.2 6.3 23 0 15 0z' fill='#3d8b40'/>" +
+    "<circle cx='15' cy='14.5' r='6' fill='#ffffff'/></svg>";
+  return new kakao.maps.MarkerImage(
+    'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(svg),
+    new kakao.maps.Size(30, 40),
+    { offset: new kakao.maps.Point(15, 40) }
+  );
+}
+
+function renderMarkers(schools) {
+  clearAllMarkers();
 
   if (!schools.length) return;
 
@@ -260,6 +340,16 @@ function openSidebar(school) {
 
   document.getElementById('sb-school').textContent = school.school;
 
+  // 주제별 차트 표시 여부 (막대: groupBy 또는 barMode 'metrics' / 꺾은선: chartMetrics 존재)
+  const hasBar = !!(topic.groupBy || topic.barMode === 'metrics') && (topic.chartMetrics || []).length > 0;
+  const hasLine = (topic.chartMetrics || []).length > 0;
+  const barBox = document.getElementById('chart-bar-box');
+  const lineBox = document.getElementById('chart-line-box');
+  const vizTitle = document.getElementById('sb-viz-title');
+  if (barBox) barBox.style.display = hasBar ? '' : 'none';
+  if (lineBox) lineBox.style.display = hasLine ? '' : 'none';
+  if (vizTitle) vizTitle.style.display = (hasBar || hasLine) ? '' : 'none';
+
   // 주제별 섹션 제목 / 특이사항 표시 여부
   document.getElementById('sb-env-title').textContent = topic.envTitle;
   const showNotes = !!topic.hasNotes;
@@ -267,14 +357,22 @@ function openSidebar(school) {
   document.getElementById('sb-notes').style.display = showNotes ? '' : 'none';
 
   if (records.length === 0) {
-    document.getElementById('sb-meta').textContent = topic.legacy
-      ? '아직 측정 기록이 없습니다 · ⊕ 버튼으로 첫 측정값을 추가해 보세요'
-      : '아직 측정 기록이 없습니다 · Google Forms로 제출하면 이곳에 표시됩니다';
+    document.getElementById('sb-meta').textContent =
+      '아직 측정 기록이 없습니다 · Google Forms로 제출하면 이곳에 표시됩니다';
     showSelectedRecord(null);
     renderLineChart([]);
     renderChart([]);
+  } else if (topic.pointMode) {
+    // 생태지도: 관찰 한 건 (제목=생명체, 메타=학교·날짜)
+    document.getElementById('sb-meta').textContent =
+      [latest.school, latest.date].filter(Boolean).join(' · ');
+    showSelectedRecord(latest);
+    renderLineChart([]);
+    renderChart([]);
   } else {
-    document.getElementById('sb-meta').textContent = `최근: ${latest.date} ${latest.time} · 총 ${records.length}건`;
+    const when = `${latest.date || ''} ${latest.time || ''}`.trim();
+    document.getElementById('sb-meta').textContent =
+      (when ? `최근: ${when} · ` : '') + `총 ${records.length}건`;
     showSelectedRecord(latest); // 기본은 가장 최근 측정 (차트 점 클릭 시 갱신)
     renderLineChart(records);
     renderChart(records);
@@ -357,7 +455,8 @@ function renderLineChart(records) {
   if (!records.length) return;
 
   const topic = currentTopic();
-  const metrics = topic.chartMetrics;
+  const metrics = topic.chartMetrics || [];
+  if (!metrics.length) return; // 꺾은선 없는 주제(예: 미세먼지)
 
   // 시간 오름차순으로 정렬한 사본
   const sorted = [...records].sort((a, b) => new Date(a.timestamp) - new Date(b.timestamp));
@@ -413,8 +512,8 @@ function showSelectedRecord(record) {
   $stats.classList.toggle('compact', topic.statFields.length > 2);
 
   if (!record) {
-    $place.textContent = '📍 -';
-    $when.textContent  = '-';
+    $place.style.display = 'none';
+    $when.style.display  = 'none';
     $stats.innerHTML   = '-';
     $env.innerHTML     = '';
     $photo.innerHTML   = '';
@@ -423,8 +522,12 @@ function showSelectedRecord(record) {
     return;
   }
 
-  $place.textContent = `📍 ${record.location || '-'}`;
-  $when.textContent  = `${record.date || ''} ${record.time || ''}`.trim() || '-';
+  // 장소·일시가 없는 주제(예: 미세먼지)는 해당 줄을 숨김
+  const whenStr = `${record.date || ''} ${record.time || ''}`.trim();
+  $place.textContent   = record.location ? `📍 ${record.location}` : '';
+  $place.style.display = record.location ? '' : 'none';
+  $when.textContent    = whenStr;
+  $when.style.display  = whenStr ? '' : 'none';
   $stats.innerHTML   = topic.statFields.map(f =>
     `<span class="sr-stat" style="color:${f.color}">${f.icon} ${formatNum(record[f.key])}${f.unit}</span>`
   ).join('');
@@ -463,32 +566,53 @@ function renderChart(records) {
   }
 
   const topic = currentTopic();
+  const metrics = topic.chartMetrics || [];
+  const isMetricsBar = topic.barMode === 'metrics';
+  const hasBar = (topic.groupBy || isMetricsBar) && metrics.length > 0;
+  if (!hasBar) return; // 막대 없는 주제(예: 미세먼지)
+
+  const title = isMetricsBar ? (topic.barTitle || '평균') : topic.groupBy.title;
   const barTitle = document.getElementById('chart-bar-title');
-  if (barTitle) barTitle.textContent = `📊 ${topic.groupBy.title}`;
+  if (barTitle) barTitle.textContent = `📊 ${title}`;
 
   if (!records.length) return;
 
-  const metrics = topic.chartMetrics;
+  let labels, datasets, showLegend;
 
-  // 그룹 기준 필드별 평균
-  const groups = {};
-  records.forEach(r => {
-    const key = r[topic.groupBy.key] || '기타';
-    if (!groups[key]) groups[key] = metrics.map(() => []);
-    metrics.forEach((m, i) => {
-      const v = r[m.key];
-      if (v !== null && v !== undefined && !isNaN(v)) groups[key][i].push(v);
+  if (isMetricsBar) {
+    // chartMetrics 각각을 막대 하나로 (예: 탄소배출 종이/플라스틱/캔/일반)
+    labels = metrics.map(m => m.label);
+    datasets = [{
+      label: title,
+      data: metrics.map(m => avg(
+        records.map(r => r[m.key]).filter(v => v !== null && v !== undefined && !isNaN(v))
+      )),
+      backgroundColor: metrics.map(m => hexToRgba(m.color, 0.75)),
+      borderRadius: 6,
+      yAxisID: 'y'
+    }];
+    showLegend = false;
+  } else {
+    // groupBy 필드별 평균 (지표들을 시리즈로)
+    const groups = {};
+    records.forEach(r => {
+      const key = r[topic.groupBy.key] || '기타';
+      if (!groups[key]) groups[key] = metrics.map(() => []);
+      metrics.forEach((m, i) => {
+        const v = r[m.key];
+        if (v !== null && v !== undefined && !isNaN(v)) groups[key][i].push(v);
+      });
     });
-  });
-
-  const labels = Object.keys(groups);
-  const datasets = metrics.map((m, i) => ({
-    label: m.label,
-    data: labels.map(k => avg(groups[k][i])),
-    backgroundColor: hexToRgba(m.color, 0.7),
-    borderRadius: 6,
-    yAxisID: m.axis || 'y'
-  }));
+    labels = Object.keys(groups);
+    datasets = metrics.map((m, i) => ({
+      label: m.label,
+      data: labels.map(k => avg(groups[k][i])),
+      backgroundColor: hexToRgba(m.color, 0.7),
+      borderRadius: 6,
+      yAxisID: m.axis || 'y'
+    }));
+    showLegend = metrics.length > 1;
+  }
 
   chartInstance = new Chart(canvas, {
     type: 'bar',
@@ -496,10 +620,10 @@ function renderChart(records) {
     options: {
       responsive: true,
       plugins: {
-        legend: { position: 'bottom', labels: { font: { size: 11 } } },
+        legend: { display: showLegend, position: 'bottom', labels: { font: { size: 11 } } },
         title: {
           display: true,
-          text: topic.groupBy.title,
+          text: title,
           font: { size: 12, weight: '700' },
           color: '#4a5670'
         }
@@ -510,43 +634,82 @@ function renderChart(records) {
 }
 
 // ─────────────────────────────────────────────
+// 생태지도 입력: 지도에서 위치 찍기 → 모달
+// ─────────────────────────────────────────────
+function startEcoInput() {
+  if (!currentTopic().input) return;
+  pickingLocation = true;
+  const banner = document.getElementById('pickBanner');
+  if (banner) banner.classList.add('show');
+  const mapEl = document.getElementById('map');
+  if (mapEl) mapEl.style.cursor = 'crosshair';
+}
+
+function cancelEcoInput() {
+  pickingLocation = false;
+  const banner = document.getElementById('pickBanner');
+  if (banner) banner.classList.remove('show');
+  const mapEl = document.getElementById('map');
+  if (mapEl) mapEl.style.cursor = '';
+}
+
+// 지도 클릭 리스너 (initApp에서 등록). pickingLocation일 때만 좌표 캡처.
+function onMapClickForPick(mouseEvent) {
+  if (!pickingLocation) return;
+  const latlng = mouseEvent.latLng;
+  pickedLatLng = { lat: latlng.getLat(), lng: latlng.getLng() };
+  if (tempPin) tempPin.setMap(null);
+  tempPin = new kakao.maps.Marker({ position: latlng, image: ecoMarkerImage(), map: map, zIndex: 5 });
+  cancelEcoInput();
+  openModal();
+}
+
+function repickEcoLocation() {
+  document.getElementById('modalBackdrop').classList.remove('open');
+  startEcoInput();
+}
+
+// ─────────────────────────────────────────────
 // 입력 모달
 // ─────────────────────────────────────────────
 function openModal() {
-  const backdrop = document.getElementById('modalBackdrop');
   populateSchoolSelect();
-  prefillDateTime();
-  backdrop.classList.add('open');
+  prefillDate();
+  const coordText = document.getElementById('f-coord-text');
+  if (pickedLatLng) {
+    document.getElementById('f-lat').value = pickedLatLng.lat;
+    document.getElementById('f-lng').value = pickedLatLng.lng;
+    if (coordText) coordText.textContent = `${pickedLatLng.lat.toFixed(5)}, ${pickedLatLng.lng.toFixed(5)}`;
+  }
+  document.getElementById('modalBackdrop').classList.add('open');
 }
 
 function closeModal() {
-  const backdrop = document.getElementById('modalBackdrop');
-  backdrop.classList.remove('open');
+  document.getElementById('modalBackdrop').classList.remove('open');
   const form = document.getElementById('submitForm');
-  form.reset();
+  if (form) form.reset();
   const preview = document.getElementById('photoPreview');
-  preview.classList.remove('show');
-  preview.removeAttribute('src');
+  if (preview) { preview.classList.remove('show'); preview.removeAttribute('src'); }
+  if (tempPin) { tempPin.setMap(null); tempPin = null; }
+  pickedLatLng = null;
 }
 
 function populateSchoolSelect() {
   const select = document.getElementById('f-school');
   if (!select) return;
   const current = select.value;
+  const names = (schoolNames && schoolNames.length) ? schoolNames : schoolsData.map(s => s.school);
   select.innerHTML = '<option value="">학교를 선택하세요</option>' +
-    schoolsData.map(s => `<option value="${escapeAttr(s.school)}">${escapeHtml(s.school)}</option>`).join('');
+    names.map(n => `<option value="${escapeAttr(n)}">${escapeHtml(n)}</option>`).join('');
   if (current) select.value = current;
 }
 
-function prefillDateTime() {
+function prefillDate() {
   const now = new Date();
-  const yyyy = now.getFullYear();
   const mm = String(now.getMonth() + 1).padStart(2, '0');
   const dd = String(now.getDate()).padStart(2, '0');
-  const hh = String(now.getHours()).padStart(2, '0');
-  const mi = String(now.getMinutes()).padStart(2, '0');
-  document.getElementById('f-date').value = `${yyyy}-${mm}-${dd}`;
-  document.getElementById('f-time').value = `${hh}:${mi}`;
+  const el = document.getElementById('f-date');
+  if (el) el.value = `${now.getFullYear()}-${mm}-${dd}`;
 }
 
 // 사진 미리보기 + "기타" 선택 시 직접 입력 칸 토글
@@ -591,13 +754,17 @@ document.addEventListener('change', (e) => {
   }
 });
 
-// 제출 핸들러
+// 제출 핸들러 (생태 관찰)
 async function handleSubmit(e) {
   e.preventDefault();
   const form = e.target;
   const submitBtn = document.getElementById('submitBtn');
   const fd = new FormData(form);
 
+  if (!pickedLatLng) {
+    showToast('지도에서 관찰 위치를 먼저 찍어주세요.', 'error');
+    return;
+  }
   const photoFile = fd.get('photo');
   if (!photoFile || !photoFile.size) {
     showToast('사진을 첨부해 주세요.', 'error');
@@ -610,52 +777,32 @@ async function handleSubmit(e) {
   try {
     const { base64, mimeType } = await resizeImage(photoFile, 1024, 0.85);
 
-    // "기타" 선택 시 직접 입력값을 location으로 사용
-    let location = fd.get('location');
-    if (location === '기타') {
-      const other = (fd.get('locationOther') || '').trim();
-      if (!other) {
-        showToast('측정 장소를 직접 입력해 주세요.', 'error');
-        submitBtn.disabled = false;
-        submitBtn.textContent = '제출';
-        return;
-      }
-      location = other;
-    }
-
-    // 환경: 기타 체크 시 직접 입력값으로 치환, 최소 1개 검증
-    let environment = fd.getAll('environment');
-    if (environment.includes('기타')) {
-      const other = (fd.get('environmentOther') || '').trim();
-      if (!other) {
-        showToast('"기타"를 선택하셨다면 학교 특징을 직접 입력해 주세요.', 'error');
-        submitBtn.disabled = false;
-        submitBtn.textContent = '제출';
-        return;
-      }
-      environment = environment.filter(v => v !== '기타').concat(other);
-    }
-    if (environment.length === 0) {
-      showToast('우리 학교의 특징을 한 가지 이상 선택해 주세요.', 'error');
-      submitBtn.disabled = false;
-      submitBtn.textContent = '제출';
-      return;
-    }
-
     const payload = {
+      topic: '생태지도',
       school: fd.get('school'),
       password: fd.get('password'),
+      studentId: fd.get('studentId'),
       studentName: fd.get('studentName'),
       date: fd.get('date'),
-      time: fd.get('time'),
-      location: location,
+      lat: pickedLatLng.lat,
+      lng: pickedLatLng.lng,
+      location: fd.get('location'),
+      species: fd.get('species'),
+      count: fd.get('count'),
       temp: fd.get('temp'),
       humidity: fd.get('humidity'),
-      environment: environment,
-      notes: fd.get('notes'),
       photoBase64: base64,
       photoMimeType: mimeType
     };
+
+    // 시연 모드: 백엔드 없이 화면에만 추가 (저장 안 됨)
+    if (typeof MOCK_MODE !== 'undefined' && MOCK_MODE) {
+      addMockObservation(payload);
+      showToast('시연 모드: 관찰이 지도에 추가되었습니다 (저장 안 됨)', 'success');
+      closeModal();
+      renderPointMarkers(observationsData);
+      return;
+    }
 
     // GAS는 application/json preflight를 처리하지 않으므로 text/plain으로 보냄
     const res = await fetch(CONFIG.GAS_API_URL, {
@@ -668,7 +815,7 @@ async function handleSubmit(e) {
     if (!result.ok) {
       showToast(result.error || '제출에 실패했습니다.', 'error');
     } else {
-      showToast('측정 데이터가 등록되었습니다 ✓', 'success');
+      showToast('관찰 기록이 등록되었습니다 ✓', 'success');
       closeModal();
       await loadData(true); // 캐시 무시하고 새로 불러오기
     }
@@ -679,6 +826,19 @@ async function handleSubmit(e) {
     submitBtn.disabled = false;
     submitBtn.textContent = '제출';
   }
+}
+
+// 시연 모드에서 제출한 관찰을 메모리에 추가 (사진은 미리보기 dataURL 사용)
+function addMockObservation(p) {
+  observationsData = observationsData.concat([{
+    timestamp: new Date().toISOString(),
+    school: p.school, studentId: p.studentId, studentName: p.studentName,
+    lat: p.lat, lng: p.lng, date: p.date, location: p.location,
+    species: p.species, count: Number(p.count),
+    temp: p.temp ? Number(p.temp) : null,
+    humidity: p.humidity ? Number(p.humidity) : null,
+    photoUrl: 'data:' + p.photoMimeType + ';base64,' + p.photoBase64
+  }]);
 }
 
 // ─────────────────────────────────────────────

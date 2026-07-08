@@ -727,3 +727,64 @@ body {
     pointer-events: none;
   }
 }
+
+/* ───── 생태지도: 위치 찍기 안내 배너 ───── */
+.pick-banner {
+  position: absolute;
+  top: 20px; left: 50%;
+  transform: translateX(-50%);
+  z-index: 30;
+  display: none;
+  align-items: center;
+  gap: 12px;
+  background: #3d8b40;
+  color: #fff;
+  padding: 10px 18px;
+  border-radius: 999px;
+  font-size: 14px;
+  font-weight: 500;
+  box-shadow: 0 6px 20px rgba(0,0,0,0.18);
+}
+.pick-banner.show { display: flex; }
+.pick-banner button {
+  background: rgba(255,255,255,0.2);
+  color: #fff;
+  border: none;
+  border-radius: 999px;
+  padding: 4px 12px;
+  font-size: 13px;
+  cursor: pointer;
+}
+.pick-banner button:hover { background: rgba(255,255,255,0.32); }
+
+/* ───── 생태지도: 모달 좌표 표시 ───── */
+.picked-coord {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  flex-wrap: wrap;
+  background: #eaf5ea;
+  border: 1px solid #cbe3cb;
+  border-radius: 10px;
+  padding: 10px 12px;
+  font-size: 13px;
+  color: #2f6b32;
+}
+.picked-coord strong { font-weight: 700; }
+.btn-link {
+  background: none;
+  border: none;
+  color: #3d8b40;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  text-decoration: underline;
+  padding: 0;
+}
+.modal-form label > span .opt {
+  color: #aaa;
+  font-size: 11px;
+  font-weight: 400;
+  margin-left: 4px;
+}
