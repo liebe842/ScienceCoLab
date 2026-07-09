@@ -160,6 +160,17 @@
     </div>
   </div>
 
+  <!-- 즉석 촬영 카메라 오버레이 -->
+  <div id="cameraOverlay" class="camera-overlay">
+    <video id="cameraVideo" class="camera-video" autoplay playsinline muted></video>
+    <div class="camera-controls">
+      <button type="button" class="cam-cancel" onclick="closeCamera()">취소</button>
+      <button type="button" class="cam-shoot" onclick="captureCameraPhoto()" aria-label="촬영"></button>
+      <span class="cam-spacer"></span>
+    </div>
+  </div>
+  <canvas id="cameraCanvas" hidden></canvas>
+
   <!-- 토스트 알림 -->
   <div id="toast" class="toast"></div>
 

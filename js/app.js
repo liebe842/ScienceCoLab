@@ -906,6 +906,7 @@ function cssEscape(s) {
 }
 
 function closeModal() {
+  closeCamera();   // 열려 있던 카메라 스트림 정리
   document.getElementById('modalBackdrop').classList.remove('open');
   editingRecord = null;
   const form = document.getElementById('submitForm');
@@ -967,10 +968,16 @@ function renderField(f) {
   }
 
   if (f.type === 'photo') {
-    return `<label>${label}
-        <input type="file" name="photo" id="f-photo" accept="image/*" capture="environment"${f.required ? ' required' : ''} />
+    return `<div class="photo-field">
+        <span>${escapeHtml(f.label)}${req}</span>
+        <div class="photo-actions">
+          <button type="button" class="btn-camera" onclick="openCamera()">📷 촬영하기</button>
+          <label class="btn-file">🖼 사진 선택
+            <input type="file" name="photo" id="f-photo" accept="image/*"${f.required ? ' required' : ''} />
+          </label>
+        </div>
         <img id="photoPreview" class="photo-preview" alt="" />
-      </label>`;
+      </div>`;
   }
 
   // text / number / date / time
@@ -1008,20 +1015,91 @@ function prefillDate() {
 document.addEventListener('change', (e) => {
   if (e.target && e.target.id === 'f-photo') {
     const file = e.target.files[0];
-    const preview = document.getElementById('photoPreview');
-    if (!preview) return;
-    if (!file) {
-      preview.classList.remove('show');
-      return;
-    }
-    const reader = new FileReader();
-    reader.onload = ev => {
-      preview.src = ev.target.result;
-      preview.classList.add('show');
-    };
-    reader.readAsDataURL(file);
+    showPhotoPreview(file);
   }
 });
+
+function showPhotoPreview(file) {
+  const preview = document.getElementById('photoPreview');
+  if (!preview) return;
+  if (!file) { preview.classList.remove('show'); return; }
+  const reader = new FileReader();
+  reader.onload = ev => {
+    preview.src = ev.target.result;
+    preview.classList.add('show');
+  };
+  reader.readAsDataURL(file);
+}
+
+// ─────────────────────────────────────────────
+// 즉석 촬영 (getUserMedia) — 데스크톱·모바일 모두 앱 안에서 촬영
+// 촬영 결과를 #f-photo 파일 input에 주입해 기존 제출 로직을 그대로 사용
+// ─────────────────────────────────────────────
+let cameraStream = null;
+
+async function openCamera() {
+  if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+    showToast('이 브라우저는 카메라를 지원하지 않습니다. "사진 선택"을 이용해 주세요.', 'error');
+    return;
+  }
+  const overlay = document.getElementById('cameraOverlay');
+  const video = document.getElementById('cameraVideo');
+  try {
+    // 후면 카메라 우선 (모바일). 데스크톱은 기본 웹캠.
+    cameraStream = await navigator.mediaDevices.getUserMedia({
+      video: { facingMode: { ideal: 'environment' } },
+      audio: false
+    });
+    video.srcObject = cameraStream;
+    overlay.classList.add('open');
+  } catch (err) {
+    console.error(err);
+    const msg = (err && err.name === 'NotAllowedError')
+      ? '카메라 접근이 거부되었습니다. 브라우저 권한을 확인해 주세요.'
+      : '카메라를 열지 못했습니다. "사진 선택"을 이용해 주세요.';
+    showToast(msg, 'error');
+    stopCameraStream();
+  }
+}
+
+function stopCameraStream() {
+  if (cameraStream) {
+    cameraStream.getTracks().forEach(t => t.stop());
+    cameraStream = null;
+  }
+  const video = document.getElementById('cameraVideo');
+  if (video) video.srcObject = null;
+}
+
+function closeCamera() {
+  stopCameraStream();
+  const overlay = document.getElementById('cameraOverlay');
+  if (overlay) overlay.classList.remove('open');
+}
+
+function captureCameraPhoto() {
+  const video = document.getElementById('cameraVideo');
+  const canvas = document.getElementById('cameraCanvas');
+  if (!video || !video.videoWidth) { showToast('카메라 준비 중입니다. 잠시 후 다시 눌러주세요.', 'error'); return; }
+
+  canvas.width = video.videoWidth;
+  canvas.height = video.videoHeight;
+  canvas.getContext('2d').drawImage(video, 0, 0, canvas.width, canvas.height);
+
+  canvas.toBlob(blob => {
+    if (!blob) { showToast('촬영에 실패했습니다.', 'error'); return; }
+    const file = new File([blob], `photo_${Date.now()}.jpg`, { type: 'image/jpeg' });
+    // 파일 input에 주입 (제출 시 fd.get('photo')로 읽힘)
+    const input = document.getElementById('f-photo');
+    if (input) {
+      const dt = new DataTransfer();
+      dt.items.add(file);
+      input.files = dt.files;
+    }
+    showPhotoPreview(file);
+    closeCamera();
+  }, 'image/jpeg', 0.92);
+}
 
 // 제출 핸들러 (모든 input:true 주제 공통) — 세션 신원 + 스키마 필드로 payload 구성
 async function handleSubmit(e) {
@@ -1291,3 +1369,6 @@ window.logout = logout;
 window.repickEcoLocation = repickEcoLocation;
 window.startEditRecord = startEditRecord;
 window.deleteSelectedRecord = deleteSelectedRecord;
+window.openCamera = openCamera;
+window.closeCamera = closeCamera;
+window.captureCameraPhoto = captureCameraPhoto;

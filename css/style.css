@@ -723,6 +723,92 @@ body {
 }
 .photo-preview.show { display: block; }
 
+/* 사진 필드: 촬영 / 선택 버튼 */
+.photo-field > span {
+  display: block;
+  font-size: 13px;
+  color: #4a5670;
+  margin-bottom: 6px;
+}
+.photo-field > span em { color: #e85a5a; font-style: normal; margin-left: 2px; }
+.photo-actions {
+  display: flex;
+  gap: 8px;
+}
+.btn-camera, .btn-file {
+  flex: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  padding: 10px 8px;
+  border-radius: 9px;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  text-align: center;
+  border: 1px solid #d4e0f5;
+  background: #eef3fd;
+  color: #4a6dc7;
+  transition: background 0.15s;
+}
+.btn-camera:hover, .btn-file:hover { background: #e2ebfb; }
+.btn-file input[type="file"] { display: none; }
+
+/* 즉석 촬영 오버레이 */
+.camera-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 400;
+  background: #000;
+  display: none;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+}
+.camera-overlay.open { display: flex; }
+.camera-video {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  background: #000;
+}
+.camera-controls {
+  position: absolute;
+  bottom: 0; left: 0; right: 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 24px 28px calc(24px + env(safe-area-inset-bottom, 0px));
+  background: linear-gradient(to top, rgba(0,0,0,0.55), rgba(0,0,0,0));
+}
+.cam-cancel {
+  background: rgba(255,255,255,0.18);
+  color: #fff;
+  border: none;
+  border-radius: 999px;
+  padding: 10px 18px;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.cam-shoot {
+  width: 68px;
+  height: 68px;
+  border-radius: 50%;
+  background: #fff;
+  border: 4px solid rgba(255,255,255,0.5);
+  cursor: pointer;
+  box-shadow: 0 0 0 2px #000 inset;
+  transition: transform 0.1s;
+}
+.cam-shoot:active { transform: scale(0.92); }
+.cam-spacer { width: 72px; }   /* 취소 버튼과 대칭으로 셔터 중앙 정렬 */
+
+@media (max-width: 600px) {
+  .photo-actions { flex-direction: column; }
+}
+
 /* "기타" 선택 시 나타나는 직접 입력 칸 */
 .location-other {
   display: none;
