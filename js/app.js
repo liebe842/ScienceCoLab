@@ -402,13 +402,15 @@ function ecoMarkerImage() {
 function renderMarkers(schools) {
   clearAllMarkers();
 
-  if (!schools.length) return;
+  // 측정 데이터가 있는 학교만 마커 표시 (데이터 없으면 지도에 안 뜸)
+  const withData = (schools || []).filter(s => (s.measurements || []).length > 0);
+  if (!withData.length) return;
 
   const topic = currentTopic();
   const bounds = new kakao.maps.LatLngBounds();
   const positions = [];
 
-  schools.forEach(school => {
+  withData.forEach(school => {
     const pos = new kakao.maps.LatLng(school.lat, school.lng);
     positions.push(pos);
 
