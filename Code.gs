@@ -95,6 +95,139 @@ function setupSheets() {
   return ss.getUrl();
 }
 
+// ─────────────────────────────────────────────
+// 🎬 시연/소개용 더미 데이터
+//   seedDemoData()  → 실제 등록 학교로 각 주제에 더미 행 추가 (학번 '9…' = 더미 표식)
+//   clearDemoData() → 학번이 '9'로 시작하는 더미 행 전부 삭제 (실제 학번은 1~2로 시작)
+//   웹 에디터에서 함수 선택 → ▶ 실행. 실제 데이터와 안전하게 분리됨.
+// ─────────────────────────────────────────────
+function seedDemoData() {
+  const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+  const schools = readSchools_(ss);
+  if (!schools.length) throw new Error('Schools 시트에 학교가 없습니다. 먼저 학교를 등록하세요.');
+  const use = schools.slice(0, Math.min(6, schools.length));
+
+  const NAMES = ['김하늘', '이도윤', '박서연', '최지우', '정하준', '강수아', '윤서준', '한예린'];
+  const pic = 'https://picsum.photos/seed/scl/800/600';
+  const R = (a, b) => Math.round((a + Math.random() * (b - a)) * 10) / 10;
+  const Ri = (a, b) => Math.round(a + Math.random() * (b - a));
+  const today = new Date();
+  const dstr = d => Utilities.formatDate(d, 'Asia/Seoul', 'yyyy-MM-dd');
+  const daysAgo = n => { const d = new Date(today); d.setDate(d.getDate() - n); return dstr(d); };
+
+  use.forEach((sc, si) => {
+    const school = sc.name;
+    const id1 = '9' + (si + 1) + '01', name1 = NAMES[(si * 2) % NAMES.length];
+    const id2 = '9' + (si + 1) + '02', name2 = NAMES[(si * 2 + 1) % NAMES.length];
+
+    // 열섬 — 학생 2명 × 3지점 (학생 필터 시연용)
+    [[id1, name1], [id2, name2]].forEach(stu => {
+      [['운동장', '아스팔트', 2.0], ['학교현관', '보도블록', 0.4], ['학교숲', '잔디', -2.6]].forEach((sp, i) => {
+        seedAppend_(ss, '열섬', { school: school, studentId: stu[0], studentName: stu[1],
+          date: daysAgo(2), time: ['09:30', '12:00', '14:30'][i],
+          weather: ['맑음', '맑음', '구름많음'][i], location: sp[0], surface: sp[1],
+          environment: i === 0 ? ['주변에 건물이 많음', '차량 통행이 잦음'] : (i === 2 ? ['나무가 많아 그늘짐'] : ['주변에 건물이 많음']),
+          heatSource: i === 0 ? '가까이에 있음' : '없음',
+          temp: R(28 + si * 0.5 + sp[2], 29 + si * 0.5 + sp[2]), photoUrl: pic });
+      });
+    });
+
+    // 태양광 — 2건
+    ['등교시(8~9시)', '오후시간(13시~16시)'].forEach((t, i) => {
+      const v = R(2.8 + i * 1.4, 3.4 + i * 1.4);
+      seedAppend_(ss, '태양광', { school: school, studentId: id1, studentName: name1,
+        date: daysAgo(3), location: i === 0 ? '운동장' : '학교 창문 및 테라스', time: t,
+        temp: R(26 + i * 2, 28 + i * 2), humidity: Ri(48, 62), lux: Ri(8000 + i * 30000, 12000 + i * 30000),
+        voltage: v, weather: i === 0 ? '맑음(구름 한점없음)' : '흐림(구름이 가끔 해를 가림)', photoUrl: pic });
+    });
+
+    // 미세먼지 — 2건
+    [0, 1].forEach(i => {
+      const pm25 = Ri(10 + si * 6, 20 + si * 6);
+      seedAppend_(ss, '미세먼지', { school: school, studentId: id1, studentName: name1,
+        date: daysAgo(1), pm10: Ri(pm25 * 1.6, pm25 * 2), pm25: pm25,
+        temp: R(24, 27), humidity: Ri(45, 60), weather: ['맑음', '흐림'][i],
+        cleaning: ['물청소 완료', '쓸기 완료'][i],
+        airNote: i === 0 ? ['교실 내 학생 이동이 많음'] : ['인근 공사 현장 공사 중', '학교 앞 도로 정체 중'], photoUrl: pic });
+    });
+
+    // 우리나라날씨 — 아침/점심/저녁
+    ['아침', '점심', '저녁'].forEach((t, i) => {
+      seedAppend_(ss, '우리나라날씨', { school: school, studentId: id1, studentName: name1,
+        date: daysAgo(1), time: t, temp: R(22 + i * 3, 24 + i * 3), photoUrl: pic });
+    });
+
+    // 탄소배출 — 3일
+    [3, 2, 1].forEach((n, i) => {
+      const base = 1 + si * 0.15 + i * 0.1;
+      seedAppend_(ss, '탄소배출', { school: school, studentId: id1, studentName: name1,
+        date: daysAgo(n), location: school + ' 2학년 4반',
+        paper: Ri(400 * base, 560 * base), plastic: Ri(260 * base, 360 * base),
+        can: Ri(80 * base, 130 * base), general: Ri(320 * base, 460 * base), photoUrl: pic });
+    });
+
+    // 소리데이터 — 교실/급식실
+    [['교실', '자습 시간', -5, ['조용함'], '5', '1'], ['급식실', '점심 시간(12시~13시)', 12, ['대화소리 많음', '외부소음(자동차, 공사 등)'], '1', '5']].forEach(sp => {
+      const avg = Math.min(97, Math.max(38, Ri(52 + sp[2], 58 + sp[2])));
+      seedAppend_(ss, '소리데이터', { school: school, studentId: id1, studentName: name1,
+        date: daysAgo(2), location: sp[0], time: sp[1], temp: R(23, 26), humidity: Ri(45, 60),
+        soundAvg: avg, soundMax: Math.min(100, avg + Ri(6, 14)), situation: sp[3],
+        concentration: sp[4], fatigue: sp[5],
+        placeFeature: sp[0] === '급식실' ? '천장 높고 딱딱한 바닥' : '일반 교실 마감',
+        notes: sp[0] === '급식실' ? '배식 시간이라 인원이 많았음' : '조용한 자습 분위기', photoUrl: pic });
+    });
+
+    // 생태지도 — 학교 주변 관찰 2건 (좌표는 학교 근처로 오프셋)
+    [['민들레', 14, 29.5, 54, '운동장 화단 옆'], ['참새', 6, '', '', '급식실 뒤 나무']].forEach((o, i) => {
+      seedAppend_(ss, '생태지도', { school: school, studentId: id1, studentName: name1,
+        lat: sc.lat + (i ? 0.0012 : -0.0009), lng: sc.lng + (i ? -0.0008 : 0.0011),
+        date: daysAgo(2), location: o[4], species: o[0], count: o[1], temp: o[2], humidity: o[3], photoUrl: pic });
+    });
+  });
+
+  Logger.log('✅ 더미 데이터 추가 완료 (학교 ' + use.length + '개). 삭제하려면 clearDemoData() 실행.');
+  return '더미 데이터 추가 완료: 학교 ' + use.length + '개';
+}
+
+// 더미 행 1건 추가 (writeOrder 순서, cfg.fields의 type으로 직렬화) — submitTopic_의 검증 없는 버전
+function seedAppend_(ss, topicKey, rec) {
+  const cfg = TOPIC_SHEETS[topicKey];
+  const sheet = ss.getSheetByName(cfg.sheet);
+  if (!sheet || !cfg.writeOrder) return;
+  const typeOf = {};
+  cfg.fields.forEach(f => { typeOf[f.key] = f.type; });
+  const row = [new Date()].concat(cfg.writeOrder.map(k => {
+    if (k === 'photoUrl') return rec.photoUrl || '';
+    const v = rec[k];
+    switch (typeOf[k]) {
+      case 'number': return (v === '' || v === null || v === undefined) ? '' : Number(v);
+      case 'tags':   return JSON.stringify(Array.isArray(v) ? v : (v ? [v] : []));
+      default:       return (v === null || v === undefined) ? '' : v;
+    }
+  }));
+  sheet.appendRow(row);
+}
+
+// 더미 행 삭제: 각 주제 시트에서 학번이 '9'로 시작하는 행 제거 (실제 학번은 1~2로 시작)
+function clearDemoData() {
+  const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+  let removed = 0;
+  Object.keys(TOPIC_SHEETS).forEach(topicKey => {
+    const cfg = TOPIC_SHEETS[topicKey];
+    const sheet = cfg.sheet && ss.getSheetByName(cfg.sheet);
+    if (!sheet || sheet.getLastRow() < 2) return;
+    const vals = sheet.getDataRange().getValues();
+    const cols = resolveColumns_(vals[0], cfg.fields);
+    const sidCol = cols.studentId;
+    if (sidCol === undefined) return;
+    for (let r = vals.length - 1; r >= 1; r--) {
+      if (String(vals[r][sidCol]).charAt(0) === '9') { sheet.deleteRow(r + 1); removed++; }
+    }
+  });
+  Logger.log('🧹 더미 행 삭제 완료: ' + removed + '건');
+  return '삭제된 더미 행: ' + removed + '건';
+}
+
 function ensureSheet_(ss, sheetName, headers) {
   let sheet = ss.getSheetByName(sheetName);
   if (!sheet) {
