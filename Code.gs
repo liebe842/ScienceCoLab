@@ -172,6 +172,12 @@ function doPost(e) {
     if (data.action === 'login') {
       return jsonOutput_(login_(data));
     }
+    if (data.action === 'update') {
+      return jsonOutput_(updateTopic_(data));
+    }
+    if (data.action === 'delete') {
+      return jsonOutput_(deleteTopic_(data));
+    }
     if (data.topic === '생태지도') {
       return jsonOutput_(submitEcomap_(data));
     }
@@ -235,6 +241,91 @@ function submitTopic_(data) {
   }));
   sheet.appendRow(row);
 
+  return { ok: true };
+}
+
+// ─────────────────────────────────────────────
+// 수정 / 삭제 (작성 본인만: 학교 비번 + 기록의 학교·학번·이름 일치 확인)
+//   기록 식별은 타임스탬프(ISO, ms 포함)로 — 제출마다 고유.
+// ─────────────────────────────────────────────
+
+// 공통: 학교 비번 검증 + 대상 행 찾기 + 본인 소유 확인. 성공 시 {sheet, rowIndex, rowValues, cols}.
+function locateOwnedRow_(data) {
+  const cfg = TOPIC_SHEETS[data.topic];
+  if (!cfg || !cfg.sheet) return { error: '알 수 없는 주제입니다: ' + (data.topic || '(없음)') };
+
+  const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+  const target = readSchools_(ss).find(s => s.name === data.school);
+  if (!target) return { error: '등록되지 않은 학교입니다.' };
+  if (String(target.password) !== String(data.password)) {
+    return { error: '비밀번호가 올바르지 않습니다.' };
+  }
+
+  const sheet = ss.getSheetByName(cfg.sheet);
+  if (!sheet) return { error: cfg.sheet + ' 시트가 없습니다.' };
+  if (!data.timestamp) return { error: '기록 식별자(타임스탬프)가 없습니다.' };
+
+  const values = sheet.getDataRange().getValues();
+  const cols = resolveColumns_(values[0], cfg.fields);
+  let rowIndex = -1, rowValues = null;
+  for (let r = 1; r < values.length; r++) {
+    const cell = values[r][0];
+    const iso = cell instanceof Date ? cell.toISOString() : String(cell);
+    if (iso === String(data.timestamp)) { rowIndex = r + 1; rowValues = values[r]; break; }
+  }
+  if (rowIndex < 0) return { error: '해당 기록을 찾지 못했습니다. (이미 삭제되었을 수 있음)' };
+
+  // 본인 소유 확인 (학교·학번·이름)
+  const rowSchool = String(rowValues[cols.school] === undefined ? '' : rowValues[cols.school]).trim();
+  const rowSid    = String(rowValues[cols.studentId] === undefined ? '' : rowValues[cols.studentId]).trim();
+  const rowName   = String(rowValues[cols.studentName] === undefined ? '' : rowValues[cols.studentName]).trim();
+  if (rowSchool !== String(data.school).trim() ||
+      rowSid !== String(data.studentId || '').trim() ||
+      rowName !== String(data.studentName || '').trim()) {
+    return { error: '본인이 작성한 기록만 수정·삭제할 수 있습니다.' };
+  }
+
+  return { cfg: cfg, sheet: sheet, rowIndex: rowIndex, rowValues: rowValues, cols: cols };
+}
+
+// 수정: 대상 행을 payload 값으로 덮어쓰기. payload에 없는 키(예: 좌표)와 새 사진 미첨부 시 기존 값 유지.
+function updateTopic_(data) {
+  const loc = locateOwnedRow_(data);
+  if (loc.error) return { ok: false, error: loc.error };
+  const cfg = loc.cfg;
+  if (!cfg.writeOrder) return { ok: false, error: '이 주제는 수정할 수 없습니다.' };
+
+  const newRow = loc.rowValues.slice();       // 기존 값 복사 (타임스탬프 등 보존)
+  const typeOf = {};
+  cfg.fields.forEach(f => { typeOf[f.key] = f.type; });
+
+  // 새 사진 있으면 저장, 없으면 기존 photoUrl 유지
+  let photoUrl = null;
+  if (data.photoBase64 && data.photoMimeType) {
+    photoUrl = savePhoto_(data.photoBase64, data.photoMimeType, data.school, data.studentName || '');
+  }
+
+  cfg.writeOrder.forEach((k, i) => {
+    const colIdx = i + 1;                      // writeOrder[i] ↔ 헤더 열 i+1
+    if (k === 'photoUrl') { if (photoUrl !== null) newRow[colIdx] = photoUrl; return; }
+    const v = data[k];
+    if (v === undefined) return;               // payload에 없으면 기존 값 유지 (예: 좌표)
+    switch (typeOf[k]) {
+      case 'number': newRow[colIdx] = (v === '' || v === null) ? '' : Number(v); break;
+      case 'tags':   newRow[colIdx] = JSON.stringify(Array.isArray(v) ? v : (v ? [v] : [])); break;
+      default:       newRow[colIdx] = (v === null) ? '' : v;
+    }
+  });
+
+  loc.sheet.getRange(loc.rowIndex, 1, 1, newRow.length).setValues([newRow]);
+  return { ok: true };
+}
+
+// 삭제: 대상 행 제거.
+function deleteTopic_(data) {
+  const loc = locateOwnedRow_(data);
+  if (loc.error) return { ok: false, error: loc.error };
+  loc.sheet.deleteRow(loc.rowIndex);
   return { ok: true };
 }
 
@@ -509,6 +600,9 @@ const TOPIC_SHEETS = {
   '생태지도': {
     sheet: SHEET_ECOMAP,   // spreadsheetId 없음 → SPREADSHEET_ID 사용
     pointMode: true,
+    // 제네릭 수정(updateTopic_)용 열 순서 (HEADERS_ECOMAP 타임스탬프 다음 열들과 일치)
+    writeOrder: ['school', 'studentId', 'studentName', 'lat', 'lng', 'date',
+                 'location', 'species', 'count', 'temp', 'humidity', 'photoUrl'],
     fields: [
       { key: 'school',      match: ['학교'] },
       { key: 'studentId',   match: ['학번'] },

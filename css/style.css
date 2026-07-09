@@ -142,6 +142,35 @@ body {
   margin-bottom: 18px;
   transition: opacity 0.2s ease;
 }
+
+/* 선택된 기록: 본인 작성 시 수정/삭제 버튼 */
+.sr-actions {
+  display: flex;
+  gap: 8px;
+  margin: -8px 0 18px;
+}
+.sr-actions button {
+  flex: 1;
+  padding: 8px 10px;
+  border-radius: 9px;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  border: 1px solid transparent;
+  transition: background 0.15s, border-color 0.15s;
+}
+.sr-actions .sr-edit {
+  background: #eef3fd;
+  color: #4a6dc7;
+  border-color: #d4e0f5;
+}
+.sr-actions .sr-edit:hover { background: #e2ebfb; }
+.sr-actions .sr-delete {
+  background: #fdeeee;
+  color: #c0453b;
+  border-color: #f3d4d1;
+}
+.sr-actions .sr-delete:hover { background: #fbe2e0; }
 .sr-place {
   font-size: 16px;
   font-weight: 700;

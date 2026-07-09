@@ -650,6 +650,8 @@ function renderLineChart(records) {
 // 선택된 측정 기록 → 헤더 + 태그/사진/특이사항/측정자 영역 갱신
 function showSelectedRecord(record) {
   const topic = currentTopic();
+  sidebarState.record = record;      // 수정/삭제 대상 추적
+  renderRecordActions(record);       // 본인 기록이면 수정/삭제 버튼
   const $place = document.getElementById('sr-place');
   const $when  = document.getElementById('sr-when');
   const $stats = document.getElementById('sr-stats');
@@ -702,6 +704,21 @@ function showSelectedRecord(record) {
 
   $notes.textContent = record.notes || '-';
   $auth.textContent  = record.studentName ? `— 측정자: ${record.studentName}` : '';
+}
+
+// 본인이 작성한 기록이면 수정/삭제 버튼 노출
+function renderRecordActions(record) {
+  const el = document.getElementById('sr-actions');
+  if (!el) return;
+  if (record && canModifyRecord(record)) {
+    el.innerHTML =
+      '<button type="button" class="sr-edit" onclick="startEditRecord()">✏️ 수정</button>' +
+      '<button type="button" class="sr-delete" onclick="deleteSelectedRecord()">🗑 삭제</button>';
+    el.style.display = '';
+  } else {
+    el.innerHTML = '';
+    el.style.display = 'none';
+  }
 }
 
 // ─────────────────────────────────────────────
@@ -821,11 +838,16 @@ function repickEcoLocation() {
 // ─────────────────────────────────────────────
 // 입력 모달 — currentTopic().inputFields 기준으로 본문 동적 렌더
 // ─────────────────────────────────────────────
+let editingRecord = null;   // 수정 중이면 대상 record, 신규 제출이면 null
+
 function openModal() {
+  editingRecord = null;
   const topic = currentTopic();
   renderModalIdentity();
   renderModalFields(topic);
   prefillDate();
+  const submitBtn = document.getElementById('submitBtn');
+  if (submitBtn) submitBtn.textContent = '제출';
   if (topic.pointMode && pickedLatLng) {
     const latEl = document.getElementById('f-lat');
     const lngEl = document.getElementById('f-lng');
@@ -837,8 +859,53 @@ function openModal() {
   document.getElementById('modalBackdrop').classList.add('open');
 }
 
+// 수정 모달: 기존 record 값으로 폼을 채워 연다.
+function openModalForEdit(record) {
+  const topic = currentTopic();
+  editingRecord = record;
+  renderModalIdentity();
+  renderModalFields(topic);
+  prefillFields(record);
+  const title = document.getElementById('modalTitle');
+  if (title) title.textContent = '✏️ 기록 수정';
+  const submitBtn = document.getElementById('submitBtn');
+  if (submitBtn) submitBtn.textContent = '수정 저장';
+  // 생태지도: 좌표는 수정하지 않고 기존 위치를 그대로 표시 (사진 위 재첨부는 선택)
+  if (topic.pointMode) {
+    const coordText = document.getElementById('f-coord-text');
+    if (coordText && record.lat != null && record.lng != null) {
+      coordText.textContent = `${Number(record.lat).toFixed(5)}, ${Number(record.lng).toFixed(5)}`;
+    }
+  }
+  document.getElementById('modalBackdrop').classList.add('open');
+}
+
+// record 값으로 모달 필드 채우기 (사진 제외 — 파일 input은 프리필 불가)
+function prefillFields(record) {
+  const topic = currentTopic();
+  (topic.inputFields || []).forEach(f => {
+    if (f.type === 'coord' || f.type === 'photo') return;
+    const val = record[f.key];
+    if (f.type === 'checkbox') {
+      const set = new Set(Array.isArray(val) ? val.map(String) : (val ? [String(val)] : []));
+      document.querySelectorAll(`#modalFields input[name="${cssEscape(f.key)}"]`).forEach(cb => {
+        cb.checked = set.has(cb.value);
+      });
+    } else {
+      const el = document.querySelector(`#modalFields [name="${cssEscape(f.key)}"]`);
+      if (el) el.value = (val === null || val === undefined) ? '' : val;
+    }
+  });
+}
+
+// name 속성 셀렉터용 최소 이스케이프 (필드 키는 영문이라 실제로는 그대로지만 방어)
+function cssEscape(s) {
+  return String(s).replace(/["\\]/g, '\\$&');
+}
+
 function closeModal() {
   document.getElementById('modalBackdrop').classList.remove('open');
+  editingRecord = null;
   const form = document.getElementById('submitForm');
   if (form) form.reset();
   const preview = document.getElementById('photoPreview');
@@ -969,9 +1036,10 @@ async function handleSubmit(e) {
   }
 
   const fd = new FormData(form);
+  const isEdit = !!editingRecord;
 
-  // pointMode(생태지도) 좌표 필수
-  if (topic.pointMode && !pickedLatLng) {
+  // pointMode(생태지도) 신규 제출은 좌표 필수 (수정은 기존 좌표 유지)
+  if (topic.pointMode && !isEdit && !pickedLatLng) {
     showToast('지도에서 관찰 위치를 먼저 찍어주세요.', 'error');
     return;
   }
@@ -984,7 +1052,10 @@ async function handleSubmit(e) {
     studentId: session.studentId,
     studentName: session.studentName
   };
-  if (topic.pointMode && pickedLatLng) {
+  if (isEdit) {
+    payload.action = 'update';
+    payload.timestamp = editingRecord.timestamp;   // 대상 기록 식별
+  } else if (topic.pointMode && pickedLatLng) {
     payload.lat = pickedLatLng.lat;
     payload.lng = pickedLatLng.lng;
   }
@@ -998,15 +1069,15 @@ async function handleSubmit(e) {
     payload[f.key] = fd.get(f.key);
   });
 
-  // 사진 필수 검사
+  // 사진 필수 검사 (수정 시엔 기존 사진 유지되므로 재첨부 강제하지 않음)
   const photoField = (topic.inputFields || []).find(f => f.type === 'photo');
-  if (photoField && photoField.required && (!photoFile || !photoFile.size)) {
+  if (!isEdit && photoField && photoField.required && (!photoFile || !photoFile.size)) {
     showToast('사진을 첨부해 주세요.', 'error');
     return;
   }
 
   submitBtn.disabled = true;
-  submitBtn.textContent = '제출 중...';
+  submitBtn.textContent = isEdit ? '저장 중...' : '제출 중...';
 
   try {
     if (photoFile && photoFile.size) {
@@ -1017,8 +1088,8 @@ async function handleSubmit(e) {
 
     // 시연 모드: 백엔드 없이 화면에만 반영 (저장 안 됨)
     if (typeof MOCK_MODE !== 'undefined' && MOCK_MODE) {
-      showToast('시연 모드: 제출은 저장되지 않습니다', 'success');
-      if (topic.pointMode) {
+      showToast('시연 모드: 저장되지 않습니다', 'success');
+      if (topic.pointMode && !isEdit) {
         addMockObservation(payload);
         renderPointMarkers(observationsData);
       }
@@ -1035,18 +1106,77 @@ async function handleSubmit(e) {
     const result = await res.json();
 
     if (!result.ok) {
-      showToast(result.error || '제출에 실패했습니다.', 'error');
+      showToast(result.error || (isEdit ? '수정에 실패했습니다.' : '제출에 실패했습니다.'), 'error');
     } else {
-      showToast('기록이 등록되었습니다 ✓', 'success');
+      showToast(isEdit ? '기록이 수정되었습니다 ✓' : '기록이 등록되었습니다 ✓', 'success');
       closeModal();
+      if (isEdit) closeSidebar();
       await loadData(true); // 캐시 무시하고 새로 불러오기
     }
   } catch (err) {
     console.error(err);
-    showToast('네트워크 오류로 제출에 실패했습니다.', 'error');
+    showToast('네트워크 오류로 처리에 실패했습니다.', 'error');
   } finally {
     submitBtn.disabled = false;
-    submitBtn.textContent = '제출';
+    submitBtn.textContent = editingRecord ? '수정 저장' : '제출';
+  }
+}
+
+// ─────────────────────────────────────────────
+// 선택된 기록 수정 / 삭제 (작성 본인만 버튼 노출)
+// ─────────────────────────────────────────────
+// 로그인 신원이 기록 작성자(학교+학번+이름)와 일치하는가
+function canModifyRecord(record) {
+  const s = getSession();
+  if (!s || !record) return false;
+  return String(s.school) === String(record.school) &&
+         String(s.studentId) === String(record.studentId) &&
+         String(s.studentName) === String(record.studentName);
+}
+
+function startEditRecord() {
+  const rec = sidebarState && sidebarState.record;
+  if (!rec) return;
+  if (!canModifyRecord(rec)) { showToast('본인이 작성한 기록만 수정할 수 있습니다.', 'error'); return; }
+  openModalForEdit(rec);
+}
+
+async function deleteSelectedRecord() {
+  const rec = sidebarState && sidebarState.record;
+  if (!rec) return;
+  if (!canModifyRecord(rec)) { showToast('본인이 작성한 기록만 삭제할 수 있습니다.', 'error'); return; }
+  if (!window.confirm('이 기록을 삭제할까요? 되돌릴 수 없습니다.')) return;
+
+  const session = getSession();
+  if (typeof MOCK_MODE !== 'undefined' && MOCK_MODE) {
+    showToast('시연 모드: 삭제는 저장되지 않습니다', 'success');
+    return;
+  }
+  try {
+    const res = await fetch(CONFIG.GAS_API_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+      body: JSON.stringify({
+        action: 'delete',
+        topic: currentTopic().apiTopic,
+        timestamp: rec.timestamp,
+        school: session.school,
+        password: session.password,
+        studentId: session.studentId,
+        studentName: session.studentName
+      })
+    });
+    const result = await res.json();
+    if (!result.ok) {
+      showToast(result.error || '삭제에 실패했습니다.', 'error');
+    } else {
+      showToast('기록이 삭제되었습니다 ✓', 'success');
+      closeSidebar();
+      await loadData(true);
+    }
+  } catch (err) {
+    console.error(err);
+    showToast('네트워크 오류로 삭제에 실패했습니다.', 'error');
   }
 }
 
@@ -1157,3 +1287,5 @@ window.closeLoginModal = closeLoginModal;
 window.handleLogin = handleLogin;
 window.logout = logout;
 window.repickEcoLocation = repickEcoLocation;
+window.startEditRecord = startEditRecord;
+window.deleteSelectedRecord = deleteSelectedRecord;
