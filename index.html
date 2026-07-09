@@ -87,8 +87,21 @@
     <button type="button" class="lightbox-close" onclick="closeLightbox()" aria-label="닫기">✕</button>
   </div>
 
+  <!-- 우측 하단: 현재 위치로 이동 -->
+  <button id="locateBtn" class="locate-btn" title="현재 위치로 이동" aria-label="현재 위치로 이동" onclick="onLocateClick()">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true">
+      <circle cx="12" cy="12" r="4.5"></circle>
+      <circle cx="12" cy="12" r="1.6" fill="currentColor" stroke="none"></circle>
+      <path d="M12 2.5v3.2M12 18.3v3.2M2.5 12h3.2M18.3 12h3.2"></path>
+    </svg>
+  </button>
+
   <!-- 우측 하단 FAB: 생태 관찰 기록 추가 (생태지도 주제에서만 표시) -->
-  <button id="fab" class="fab" title="측정 기록 추가" onclick="onFabClick()">+</button>
+  <button id="fab" class="fab" title="측정 기록 추가" onclick="onFabClick()">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true">
+      <path d="M12 5v14M5 12h14"></path>
+    </svg>
+  </button>
 
   <!-- 지도 위치 찍기 안내 배너 -->
   <div id="pickBanner" class="pick-banner">📍 지도를 눌러 관찰한 위치를 찍으세요 <button type="button" onclick="cancelEcoInput()">취소</button></div>

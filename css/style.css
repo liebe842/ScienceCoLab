@@ -505,6 +505,48 @@ body {
   right: 444px; /* sidebar width(420) + margin(24) */
 }
 
+/* ───── 현재 위치 버튼 (FAB 위, FAB와 동일 크기·스타일) ───── */
+.locate-btn {
+  position: fixed;
+  right: 24px;
+  bottom: 96px;   /* FAB(높이 60, bottom 24) 위 + 12px 간격 */
+  width: 60px;
+  height: 60px;
+  border-radius: 50%;
+  border: none;
+  background: linear-gradient(135deg, #5b8def, #7aa5ff);
+  color: #fff;
+  cursor: pointer;
+  box-shadow: 0 6px 18px rgba(91,141,239,0.45);
+  z-index: 80;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  line-height: 1;
+  transition: right 0.4s cubic-bezier(0.4, 0, 0.2, 1), transform 0.2s, box-shadow 0.2s;
+}
+.locate-btn:hover { transform: scale(1.08); box-shadow: 0 8px 22px rgba(91,141,239,0.55); }
+.locate-btn:active { transform: scale(0.96); }
+/* 위치 찾는 중: 아이콘만 회전 */
+.locate-btn.loading { pointer-events: none; }
+.locate-btn.loading svg { animation: locSpin 0.9s linear infinite; }
+@keyframes locSpin { to { transform: rotate(360deg); } }
+/* 사이드바 열리면 함께 슬라이드 */
+.sidebar.open ~ .locate-btn { right: 444px; }
+
+/* 두 버튼 아이콘 크기 통일 */
+.fab svg, .locate-btn svg { width: 26px; height: 26px; display: block; }
+
+/* 현재 위치 표시 점 (파란 점 + 링) */
+.my-loc-dot {
+  width: 16px;
+  height: 16px;
+  background: #4a90ff;
+  border: 3px solid #fff;
+  border-radius: 50%;
+  box-shadow: 0 0 0 2px rgba(74,144,255,0.5), 0 0 12px rgba(74,144,255,0.6);
+}
+
 /* ───── 모달 ───── */
 .modal-backdrop {
   position: fixed;
@@ -720,8 +762,11 @@ body {
   .header p { font-size: 11px; }
   .topic-chip { padding: 4px 9px; font-size: 11px; }
   .fab { right: 16px; bottom: 16px; width: 54px; height: 54px; font-size: 28px; }
-  /* 모바일: 사이드바가 전체 화면을 덮으므로 FAB는 숨김 */
-  .sidebar.open ~ .fab {
+  .locate-btn { right: 16px; bottom: 82px; width: 54px; height: 54px; }
+  .fab svg, .locate-btn svg { width: 24px; height: 24px; }
+  /* 모바일: 사이드바가 전체 화면을 덮으므로 FAB·위치버튼은 숨김 */
+  .sidebar.open ~ .fab,
+  .sidebar.open ~ .locate-btn {
     right: 16px;
     opacity: 0;
     pointer-events: none;
@@ -810,6 +855,8 @@ body {
 }
 .auth-btn:hover { background: #4a6dc7; }
 .auth-user { display: inline-flex; align-items: center; gap: 8px; color: #4a5670; }
+/* [hidden] 속성이 위 display 규칙에 덮이지 않도록 (로그아웃 시 확실히 숨김) */
+.auth-user[hidden] { display: none; }
 .auth-user #authUserText { font-weight: 600; }
 .auth-logout {
   background: #f4f6fa;

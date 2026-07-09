@@ -74,6 +74,7 @@ function renderAuthArea() {
   } else {
     loginBtn.hidden = false;
     userWrap.hidden = true;
+    if (userText) userText.textContent = '';
   }
 }
 
@@ -150,6 +151,48 @@ function onFabClick() {
   } else {
     openModal();       // 집계형(열섬 등): 바로 설문 모달
   }
+}
+
+// ─────────────────────────────────────────────
+// 현재 위치로 이동 (브라우저 Geolocation)
+// ─────────────────────────────────────────────
+let myLocOverlay = null;
+
+function onLocateClick() {
+  if (!navigator.geolocation) {
+    showToast('이 브라우저는 위치 기능을 지원하지 않습니다.', 'error');
+    return;
+  }
+  if (!map) return;
+  const btn = document.getElementById('locateBtn');
+  if (btn) btn.classList.add('loading');
+
+  navigator.geolocation.getCurrentPosition(
+    pos => {
+      if (btn) btn.classList.remove('loading');
+      const loc = new kakao.maps.LatLng(pos.coords.latitude, pos.coords.longitude);
+      map.setCenter(loc);
+      if (map.getLevel() > 6) map.setLevel(5);   // 너무 멀면 적당히 확대
+      showMyLocation(loc);
+    },
+    err => {
+      if (btn) btn.classList.remove('loading');
+      const msg = err.code === err.PERMISSION_DENIED
+        ? '위치 접근이 거부되었습니다. 브라우저 권한을 확인해 주세요.'
+        : '현재 위치를 가져오지 못했습니다.';
+      showToast(msg, 'error');
+    },
+    { enableHighAccuracy: true, timeout: 8000, maximumAge: 30000 }
+  );
+}
+
+// 현재 위치 파란 점 표시 (한 개만 유지)
+function showMyLocation(loc) {
+  if (myLocOverlay) myLocOverlay.setMap(null);
+  const dot = document.createElement('div');
+  dot.className = 'my-loc-dot';
+  myLocOverlay = new kakao.maps.CustomOverlay({ position: loc, content: dot, zIndex: 6 });
+  myLocOverlay.setMap(map);
 }
 
 // 앱 입력(FAB)은 input:true 주제(생태지도)에서만 표시
@@ -1108,6 +1151,7 @@ window.handleSubmit = handleSubmit;
 window.closeSidebar = closeSidebar;
 window.closeLightbox = closeLightbox;
 window.onFabClick = onFabClick;
+window.onLocateClick = onLocateClick;
 window.openLoginModal = openLoginModal;
 window.closeLoginModal = closeLoginModal;
 window.handleLogin = handleLogin;
