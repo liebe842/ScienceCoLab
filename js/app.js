@@ -1183,6 +1183,17 @@ function openModalForEdit(record) {
     if (sidEl) sidEl.value = record.studentId || '';
     if (nameEl) nameEl.value = record.studentName || '';
   }
+  // 수정 시 사진은 재첨부하지 않으면 기존 사진이 유지됨.
+  // 파일 input은 시각적으로 숨겨져 있어 native required 검증이 실패하면
+  // "invalid form control is not focusable" 오류로 제출이 통째로 막힌다 → 수정 모드에선 required 해제.
+  const photoInput = document.getElementById('f-photo');
+  if (photoInput) photoInput.required = false;
+  // 기존에 올렸던 사진을 미리보기에 표시 (재첨부 전까지 그대로 보임)
+  const preview = document.getElementById('photoPreview');
+  if (preview && record.photoUrl) {
+    preview.src = record.photoUrl;
+    preview.classList.add('show');
+  }
   const title = document.getElementById('modalTitle');
   if (title) title.textContent = '✏️ 기록 수정';
   const submitBtn = document.getElementById('submitBtn');
