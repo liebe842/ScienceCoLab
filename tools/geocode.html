@@ -1,0 +1,160 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>학교 좌표 변환기 — ScienceCoLab</title>
+  <!-- 메인 앱의 카카오 키 재사용 -->
+  <script src="../js/config.js"></script>
+  <script>
+    // 장소검색(Places) + 주소검색(Geocoder)에 필요한 services 라이브러리 로드
+    const s = document.createElement('script');
+    s.src = `https://dapi.kakao.com/v2/maps/sdk.js?appkey=${CONFIG.KAKAO_APP_KEY}&autoload=false&libraries=services`;
+    s.onload = () => kakao.maps.load(() => { window.__kakaoReady = true; });
+    document.head.appendChild(s);
+  </script>
+  <style>
+    * { box-sizing: border-box; }
+    body { font-family: 'Noto Sans KR', system-ui, sans-serif; max-width: 860px; margin: 0 auto; padding: 24px 18px 60px; color: #2d3e5e; }
+    h1 { font-size: 20px; color: #4a6dc7; }
+    p.desc { font-size: 13px; color: #666; line-height: 1.6; }
+    code { background: #eef3fd; padding: 1px 5px; border-radius: 4px; font-size: 12px; }
+    textarea { width: 100%; font-family: ui-monospace, monospace; font-size: 13px; border: 1px solid #dde3ec; border-radius: 8px; padding: 10px 12px; }
+    #input { height: 150px; }
+    #output { height: 120px; background: #fafbfc; }
+    .row { display: flex; gap: 10px; align-items: center; margin: 12px 0; flex-wrap: wrap; }
+    button { background: #5b8def; color: #fff; border: none; border-radius: 8px; padding: 10px 20px; font-size: 14px; font-weight: 600; cursor: pointer; }
+    button:hover { background: #4a6dc7; }
+    button:disabled { opacity: .5; cursor: default; }
+    button.ghost { background: #eef3fd; color: #4a6dc7; }
+    #status { font-size: 13px; color: #888; }
+    table { border-collapse: collapse; width: 100%; margin-top: 14px; font-size: 13px; }
+    th, td { border: 1px solid #eef0f5; padding: 7px 9px; text-align: left; }
+    th { background: #e8eef9; color: #2d3e5e; }
+    td.coord { font-family: ui-monospace, monospace; }
+    .ok { color: #2a8c55; font-weight: 600; }
+    .addr { color: #b07a1f; font-weight: 600; }
+    .fail { color: #c0453b; font-weight: 600; }
+    .matched { color: #888; font-size: 12px; }
+    .hint { font-size: 12px; color: #999; margin-top: 4px; }
+  </style>
+</head>
+<body>
+  <h1>🗺️ 학교 좌표 변환기</h1>
+  <p class="desc">
+    학교명(또는 주소)을 <b>한 줄에 하나씩</b> 붙여넣고 [변환]을 누르세요.
+    카카오 <b>장소검색</b>으로 학교를 찾고, 못 찾으면 <b>주소검색</b>으로 재시도합니다.<br>
+    형식: <code>학교명</code> 또는 <code>학교명 | 주소</code> (더 정확하게 하려면 주소 병기).<br>
+    결과의 <b>매칭 결과</b>가 의도한 학교가 맞는지 꼭 확인한 뒤, 아래 표를 복사해
+    <code>Schools</code> 시트의 <b>학교명·위도·경도</b> 열에 붙여넣으세요.
+  </p>
+
+  <textarea id="input" placeholder="예)&#10;인천부내초등학교&#10;인천포스코고등학교 | 인천 연수구 송도동&#10;서울대학교 사범대학"></textarea>
+  <div class="row">
+    <button id="go" onclick="runGeocode()">변환</button>
+    <button class="ghost" onclick="copyTsv()">결과 복사 (시트 붙여넣기용)</button>
+    <span id="status">카카오 SDK 로딩 중…</span>
+  </div>
+
+  <textarea id="output" readonly placeholder="변환 결과(탭 구분: 학교명 · 위도 · 경도)가 여기에 표시됩니다. 그대로 복사해 시트에 붙여넣으면 됩니다."></textarea>
+  <div class="hint">위 상자는 구글 시트에 바로 붙여넣기 좋게 <b>탭으로 구분</b>돼 있습니다. 아래 표는 눈으로 확인용입니다.</div>
+
+  <table id="results" hidden>
+    <thead><tr><th>#</th><th>입력</th><th>위도</th><th>경도</th><th>매칭 결과</th><th>상태</th></tr></thead>
+    <tbody></tbody>
+  </table>
+
+  <script>
+    function waitKakao() {
+      return new Promise(resolve => {
+        (function poll() {
+          if (window.__kakaoReady && window.kakao && kakao.maps && kakao.maps.services) return resolve(true);
+          setTimeout(poll, 150);
+        })();
+      });
+    }
+    waitKakao().then(() => { document.getElementById('status').textContent = '준비됨 ✓'; });
+
+    const delay = ms => new Promise(r => setTimeout(r, ms));
+
+    // 장소검색 (학교명 등 키워드)
+    function keywordSearch(query) {
+      return new Promise(resolve => {
+        new kakao.maps.services.Places().keywordSearch(query, (data, st) => {
+          if (st === kakao.maps.services.Status.OK && data.length) {
+            resolve({ lat: +data[0].y, lng: +data[0].x, matched: data[0].place_name + (data[0].road_address_name ? ' · ' + data[0].road_address_name : '') });
+          } else resolve(null);
+        });
+      });
+    }
+    // 주소검색
+    function addressSearch(query) {
+      return new Promise(resolve => {
+        new kakao.maps.services.Geocoder().addressSearch(query, (data, st) => {
+          if (st === kakao.maps.services.Status.OK && data.length) {
+            resolve({ lat: +data[0].y, lng: +data[0].x, matched: data[0].address_name });
+          } else resolve(null);
+        });
+      });
+    }
+
+    async function runGeocode() {
+      const goBtn = document.getElementById('go');
+      const status = document.getElementById('status');
+      await waitKakao();
+
+      const lines = document.getElementById('input').value.split('\n').map(l => l.trim()).filter(Boolean);
+      if (!lines.length) { status.textContent = '변환할 학교명을 입력하세요.'; return; }
+
+      goBtn.disabled = true;
+      const tbody = document.querySelector('#results tbody');
+      tbody.innerHTML = '';
+      document.getElementById('results').hidden = false;
+      const tsv = [];
+
+      for (let i = 0; i < lines.length; i++) {
+        status.textContent = `변환 중… ${i + 1}/${lines.length}`;
+        const parts = lines[i].split('|').map(s => s.trim());
+        const name = parts[0];
+        const addr = parts[1] || '';
+
+        let res = null, how = '';
+        if (addr) { res = await addressSearch(addr); if (res) how = 'addr'; }
+        if (!res) { res = await keywordSearch(name); if (res) how = 'kw'; }
+        if (!res && addr) { res = await keywordSearch(addr); if (res) how = 'kw'; }
+
+        const tr = document.createElement('tr');
+        if (res) {
+          const lat = res.lat.toFixed(6), lng = res.lng.toFixed(6);
+          const label = how === 'addr' ? '<span class="addr">주소검색</span>' : '<span class="ok">장소검색</span>';
+          tr.innerHTML = `<td>${i + 1}</td><td>${esc(name)}</td><td class="coord">${lat}</td><td class="coord">${lng}</td><td class="matched">${esc(res.matched)}</td><td>${label}</td>`;
+          tsv.push(`${name}\t${lat}\t${lng}`);
+        } else {
+          tr.innerHTML = `<td>${i + 1}</td><td>${esc(name)}</td><td>-</td><td>-</td><td class="matched">-</td><td><span class="fail">실패</span></td>`;
+          tsv.push(`${name}\t\t`);
+        }
+        tbody.appendChild(tr);
+        await delay(250); // 과도한 연속 호출 방지
+      }
+
+      document.getElementById('output').value = tsv.join('\n');
+      status.textContent = `완료 ✓ (${lines.length}건)`;
+      goBtn.disabled = false;
+    }
+
+    function copyTsv() {
+      const out = document.getElementById('output');
+      if (!out.value) { document.getElementById('status').textContent = '먼저 변환을 실행하세요.'; return; }
+      out.select();
+      navigator.clipboard.writeText(out.value).then(
+        () => { document.getElementById('status').textContent = '복사됨 ✓ 시트에 붙여넣으세요.'; },
+        () => { document.execCommand('copy'); }
+      );
+    }
+
+    function esc(s) {
+      return String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+    }
+  </script>
+</body>
+</html>

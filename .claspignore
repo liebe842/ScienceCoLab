@@ -1,7 +1,8 @@
 # 프론트엔드 파일은 GAS에 업로드하지 않음
 **/css/**
 **/js/**
-**/index.html
+**/tools/**
+**/*.html
 **/.git/**
 **/.gitignore
 **/.claspignore

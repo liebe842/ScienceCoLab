@@ -116,31 +116,44 @@
         <button type="button" class="close-btn" onclick="closeLoginModal()">✕</button>
       </div>
       <form id="loginForm" class="modal-form" onsubmit="handleLogin(event)">
-        <label>
-          <span>주제 <em>*</em></span>
-          <select name="topic" id="login-topic" required></select>
-        </label>
-        <label>
-          <span>학교 <em>*</em></span>
-          <select name="school" id="login-school" required></select>
-        </label>
-        <div class="form-row">
+        <!-- 학생 로그인 필드 -->
+        <div id="loginStudentFields">
           <label>
-            <span>학번 <em>*</em></span>
-            <input type="text" name="studentId" required maxlength="10" placeholder="20831" />
+            <span>주제 <em>*</em></span>
+            <select name="topic" id="login-topic" required></select>
           </label>
           <label>
-            <span>이름 <em>*</em></span>
-            <input type="text" name="studentName" required maxlength="30" />
+            <span>학교 <em>*</em></span>
+            <select name="school" id="login-school" required></select>
+          </label>
+          <div class="form-row">
+            <label>
+              <span>학번 <em>*</em></span>
+              <input type="text" name="studentId" required maxlength="10" placeholder="20831" />
+            </label>
+            <label>
+              <span>이름 <em>*</em></span>
+              <input type="text" name="studentName" required maxlength="30" />
+            </label>
+          </div>
+          <label>
+            <span>학교 비밀번호 <em>*</em></span>
+            <input type="password" name="password" autocomplete="off" />
           </label>
         </div>
-        <label>
-          <span>학교 비밀번호 <em>*</em></span>
-          <input type="password" name="password" required autocomplete="off" />
-        </label>
+        <!-- 관리자 로그인 필드 (숨김) -->
+        <div id="loginAdminFields" hidden>
+          <label>
+            <span>관리자 비밀번호 <em>*</em></span>
+            <input type="password" name="adminPassword" autocomplete="off" />
+          </label>
+        </div>
         <div class="form-actions">
           <button type="button" class="btn-secondary" onclick="closeLoginModal()">취소</button>
           <button type="submit" class="btn-primary" id="loginSubmitBtn">로그인</button>
+        </div>
+        <div class="login-mode-toggle">
+          <a href="#" id="loginModeLink" onclick="toggleLoginMode(event)">관리자 로그인</a>
         </div>
       </form>
     </div>

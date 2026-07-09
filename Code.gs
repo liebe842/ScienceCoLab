@@ -3,10 +3,9 @@
  *
  * 배포 방법:
  *   1) 아래 SPREADSHEET_ID, PHOTO_FOLDER_ID 두 상수에 본인 ID 입력
- *   2) 스프레드시트에 시트 2개 생성 (헤더 행 1줄 포함)
- *      - Schools:       학교명 | 위도 | 경도 | 비밀번호
- *      - Measurements:  타임스탬프 | 학교명 | 학생이름 | 측정날짜 | 측정시간 |
- *                       측정장소 | 기온 | 습도 | 주변환경 | 특이사항 | 사진URL
+ *   2) setupSheets 실행 → 필요한 시트(Schools, Students, 생태지도, 주제별 시트)가 자동 생성됨
+ *      - Schools:  학교명 | 위도 | 경도 | 비밀번호
+ *      - Students: 학교명 | 학번 | 이름 | 주제  (로그인 명부)
  *   3) Drive에 사진 저장용 폴더 생성 → 폴더 ID 복사
  *   4) 배포 → 새 배포 → 웹앱
  *      - 실행 주체:    나(Me)
@@ -18,19 +17,17 @@ const SPREADSHEET_ID = '1zfrifBLjz9Sf184UUYS5iHuraQqaXmyOtAKBA-A01YA';
 const PHOTO_FOLDER_ID = '12Elqhe2Vq3sUHHF744CdEtp218dHH6dE';
 
 const SHEET_SCHOOLS = 'Schools';
-const SHEET_MEASUREMENTS = 'Measurements';
 const SHEET_ECOMAP = '생태지도';   // 앱 지도입력 관찰 저장 (앱이 소유하는 로컬 시트)
 const SHEET_STUDENTS = 'Students';  // 학생 명부 (로그인 검증용)
+const SHEET_ADMIN = 'Admin';        // 관리자 비밀번호 (A2 셀). 전체 수정·삭제·입력 권한.
+
+const HEADERS_ADMIN = ['비밀번호'];  // A2에 관리자 비번을 직접 입력
 
 const HEADERS_SCHOOLS = ['학교명', '위도', '경도', '비밀번호'];
 // 학생 명부: 로그인 시 (주제·학교·학번·이름) 4개가 모두 일치해야 통과.
 // '주제' 값은 앱의 주제명(apiTopic)과 정확히 일치해야 함:
 //   열섬 · 태양광 · 미세먼지 · 우리나라날씨 · 탄소배출 · 소리데이터 · 생태지도
 const HEADERS_STUDENTS = ['학교명', '학번', '이름', '주제'];
-const HEADERS_MEASUREMENTS = [
-  '타임스탬프', '학교명', '학생이름', '측정날짜', '측정시간',
-  '측정장소', '기온', '습도', '주변환경', '특이사항', '사진URL'
-];
 const HEADERS_ECOMAP = [
   '타임스탬프', '학교명', '학번', '이름', '위도', '경도',
   '관찰날짜', '장소설명', '생명체이름', '개체수', '온도', '습도', '사진URL'
@@ -78,7 +75,7 @@ function setupSheets() {
 
   ensureSheet_(ss, SHEET_SCHOOLS, HEADERS_SCHOOLS);
   ensureSheet_(ss, SHEET_STUDENTS, HEADERS_STUDENTS);
-  ensureSheet_(ss, SHEET_MEASUREMENTS, HEADERS_MEASUREMENTS);
+  ensureSheet_(ss, SHEET_ADMIN, HEADERS_ADMIN);
   ensureSheet_(ss, SHEET_ECOMAP, HEADERS_ECOMAP);
   ensureSheet_(ss, '열섬', HEADERS_HEAT);
   ensureSheet_(ss, '우리나라날씨', HEADERS_WEATHER);
@@ -147,19 +144,8 @@ function doGet(e) {
       return jsonOutput_(readTopic_(params.topic));
     }
 
-    const schools = readSchools_(ss);
-    const measurements = readMeasurements_(ss);
-
-    const grouped = schools.map(s => ({
-      school: s.name,
-      lat: s.lat,
-      lng: s.lng,
-      measurements: measurements
-        .filter(m => m.school === s.name)
-        .sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp))
-    }));
-
-    return jsonOutput_(grouped);
+    // 무파라미터 GET: 이제 모든 데이터는 topic별로 조회한다. topic 파라미터 필요.
+    return jsonOutput_({ ok: false, error: 'topic 파라미터가 필요합니다. 예: ?topic=열섬' });
   } catch (err) {
     return jsonOutput_({ ok: false, error: String(err) });
   }
@@ -198,11 +184,17 @@ function doPost(e) {
 }
 
 // 로그인: 학교 비번 검증 + (명부 있으면) 주제·학번·이름 명부 대조.
+//   role:'admin' → 관리자 비번 검증 (전체 수정·삭제·입력 권한)
 //   1) 학교 비번 일치 필수
 //   2) Students 시트에 그 학교 명단이 있으면 → (주제·학번·이름) 4개가 모두 일치해야 통과
 //      (등록 주제와 다른 주제 선택 시 로그인 실패)
 //   3) 그 학교 명단이 없으면(명부 미비 전환기) → 비번만으로 통과 (기존 동작)
 function login_(data) {
+  if (data.role === 'admin') {
+    if (isAdmin_(data.adminPassword)) return { ok: true, admin: true };
+    return { ok: false, error: '관리자 비밀번호가 올바르지 않습니다.' };
+  }
+
   const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
   const target = readSchools_(ss).find(s => s.name === data.school);
   if (!target) return { ok: false, error: '등록되지 않은 학교입니다.' };
@@ -247,6 +239,20 @@ function readStudents_(ss) {
     }));
 }
 
+// Admin 시트 A2의 관리자 비밀번호 (없으면 '')
+function readAdminPassword_() {
+  const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+  const sheet = ss.getSheetByName(SHEET_ADMIN);
+  if (!sheet || sheet.getLastRow() < 2) return '';
+  return String(sheet.getRange(2, 1).getValue() || '').trim();
+}
+
+// 관리자 인증: 입력 비번이 Admin 시트 비번과 일치(비번이 설정돼 있을 때만)
+function isAdmin_(adminPassword) {
+  const stored = readAdminPassword_();
+  return !!stored && String(adminPassword || '').trim() === stored;
+}
+
 // 제네릭 주제 제출: 비번 검증 → 사진 저장(선택) → cfg.writeOrder 순서로 시트에 append.
 // 필드 직렬화는 cfg.fields의 type을 참조 (number/tags/기본).
 function submitTopic_(data) {
@@ -256,10 +262,10 @@ function submitTopic_(data) {
   }
   const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
 
-  // 1) 비밀번호 검증
+  // 1) 인증: 관리자면 학교 비번 생략, 아니면 학교 비번 검증
   const target = readSchools_(ss).find(s => s.name === data.school);
   if (!target) return { ok: false, error: '등록되지 않은 학교입니다.' };
-  if (String(target.password) !== String(data.password)) {
+  if (!isAdmin_(data.adminPassword) && String(target.password) !== String(data.password)) {
     return { ok: false, error: '비밀번호가 올바르지 않습니다.' };
   }
 
@@ -294,16 +300,22 @@ function submitTopic_(data) {
 //   기록 식별은 타임스탬프(ISO, ms 포함)로 — 제출마다 고유.
 // ─────────────────────────────────────────────
 
-// 공통: 학교 비번 검증 + 대상 행 찾기 + 본인 소유 확인. 성공 시 {sheet, rowIndex, rowValues, cols}.
+// 공통: 인증 + 대상 행 찾기. 관리자는 전체 권한, 아니면 학교 비번 + 본인 소유 확인.
+// 성공 시 {cfg, sheet, rowIndex, rowValues, cols}.
 function locateOwnedRow_(data) {
   const cfg = TOPIC_SHEETS[data.topic];
   if (!cfg || !cfg.sheet) return { error: '알 수 없는 주제입니다: ' + (data.topic || '(없음)') };
 
   const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
-  const target = readSchools_(ss).find(s => s.name === data.school);
-  if (!target) return { error: '등록되지 않은 학교입니다.' };
-  if (String(target.password) !== String(data.password)) {
-    return { error: '비밀번호가 올바르지 않습니다.' };
+  const admin = isAdmin_(data.adminPassword);
+
+  // 관리자가 아니면 학교 비번 검증
+  if (!admin) {
+    const target = readSchools_(ss).find(s => s.name === data.school);
+    if (!target) return { error: '등록되지 않은 학교입니다.' };
+    if (String(target.password) !== String(data.password)) {
+      return { error: '비밀번호가 올바르지 않습니다.' };
+    }
   }
 
   const sheet = ss.getSheetByName(cfg.sheet);
@@ -320,14 +332,16 @@ function locateOwnedRow_(data) {
   }
   if (rowIndex < 0) return { error: '해당 기록을 찾지 못했습니다. (이미 삭제되었을 수 있음)' };
 
-  // 본인 소유 확인 (학교·학번·이름)
-  const rowSchool = String(rowValues[cols.school] === undefined ? '' : rowValues[cols.school]).trim();
-  const rowSid    = String(rowValues[cols.studentId] === undefined ? '' : rowValues[cols.studentId]).trim();
-  const rowName   = String(rowValues[cols.studentName] === undefined ? '' : rowValues[cols.studentName]).trim();
-  if (rowSchool !== String(data.school).trim() ||
-      rowSid !== String(data.studentId || '').trim() ||
-      rowName !== String(data.studentName || '').trim()) {
-    return { error: '본인이 작성한 기록만 수정·삭제할 수 있습니다.' };
+  // 관리자가 아니면 본인 소유 확인 (학교·학번·이름)
+  if (!admin) {
+    const rowSchool = String(rowValues[cols.school] === undefined ? '' : rowValues[cols.school]).trim();
+    const rowSid    = String(rowValues[cols.studentId] === undefined ? '' : rowValues[cols.studentId]).trim();
+    const rowName   = String(rowValues[cols.studentName] === undefined ? '' : rowValues[cols.studentName]).trim();
+    if (rowSchool !== String(data.school).trim() ||
+        rowSid !== String(data.studentId || '').trim() ||
+        rowName !== String(data.studentName || '').trim()) {
+      return { error: '본인이 작성한 기록만 수정·삭제할 수 있습니다.' };
+    }
   }
 
   return { cfg: cfg, sheet: sheet, rowIndex: rowIndex, rowValues: rowValues, cols: cols };
@@ -350,8 +364,11 @@ function updateTopic_(data) {
     photoUrl = savePhoto_(data.photoBase64, data.photoMimeType, data.school, data.studentName || '');
   }
 
+  // 신원 열(학교·학번·이름)은 수정 대상이 아님 — 항상 기존 값 유지 (관리자 수정 시 작성자 보존)
+  const IDENTITY = { school: 1, studentId: 1, studentName: 1 };
   cfg.writeOrder.forEach((k, i) => {
     const colIdx = i + 1;                      // writeOrder[i] ↔ 헤더 열 i+1
+    if (IDENTITY[k]) return;                   // 신원 열 보존
     if (k === 'photoUrl') { if (photoUrl !== null) newRow[colIdx] = photoUrl; return; }
     const v = data[k];
     if (v === undefined) return;               // payload에 없으면 기존 값 유지 (예: 좌표)
@@ -378,10 +395,10 @@ function deleteTopic_(data) {
 function submitEcomap_(data) {
   const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
 
-  // 1) 비밀번호 검증
+  // 1) 인증: 관리자면 학교 비번 생략, 아니면 학교 비번 검증
   const target = readSchools_(ss).find(s => s.name === data.school);
   if (!target) return { ok: false, error: '등록되지 않은 학교입니다.' };
-  if (String(target.password) !== String(data.password)) {
+  if (!isAdmin_(data.adminPassword) && String(target.password) !== String(data.password)) {
     return { ok: false, error: '비밀번호가 올바르지 않습니다.' };
   }
 
@@ -432,41 +449,6 @@ function readSchools_(ss) {
       lng: Number(r[2]),
       password: String(r[3] || '').trim()
     }));
-}
-
-function readMeasurements_(ss) {
-  const sheet = ss.getSheetByName(SHEET_MEASUREMENTS);
-  const values = sheet.getDataRange().getValues();
-  const rows = values.slice(1);
-  return rows
-    .filter(r => r[1]) // 학교명 있는 행만
-    .map(r => ({
-      timestamp: r[0] instanceof Date ? r[0].toISOString() : String(r[0]),
-      school: String(r[1]).trim(),
-      studentName: String(r[2] || ''),
-      date: r[3] instanceof Date ? Utilities.formatDate(r[3], 'Asia/Seoul', 'yyyy-MM-dd') : String(r[3] || ''),
-      time: r[4] instanceof Date ? Utilities.formatDate(r[4], 'Asia/Seoul', 'HH:mm') : String(r[4] || ''),
-      location: String(r[5] || ''),
-      temp: r[6] === '' ? null : Number(r[6]),
-      humidity: r[7] === '' ? null : Number(r[7]),
-      environment: parseEnvironment_(r[8]),
-      notes: String(r[9] || ''),
-      photoUrl: String(r[10] || '')
-    }));
-}
-
-// 환경 데이터 파싱: 신(JSON 배열) 포맷 우선, 실패 시 구(콤마 구분) 포맷 폴백
-function parseEnvironment_(raw) {
-  if (raw === null || raw === undefined || raw === '') return [];
-  const s = String(raw).trim();
-  if (!s) return [];
-  if (s.startsWith('[')) {
-    try {
-      const arr = JSON.parse(s);
-      if (Array.isArray(arr)) return arr.map(String).filter(Boolean);
-    } catch (e) { /* fall through to legacy */ }
-  }
-  return s.split(',').map(t => t.trim()).filter(Boolean);
 }
 
 function savePhoto_(base64, mimeType, school, studentName) {

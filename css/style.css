@@ -996,6 +996,33 @@ body {
 }
 .modal-identity strong { color: #2d3e5e; font-weight: 700; }
 
+/* 로그인 모드 전환 링크 */
+.login-mode-toggle { text-align: center; margin-top: 4px; }
+.login-mode-toggle a {
+  font-size: 12px;
+  color: #8a94a8;
+  text-decoration: none;
+  border-bottom: 1px dashed #c3ccdb;
+  padding-bottom: 1px;
+}
+.login-mode-toggle a:hover { color: #5b8def; border-bottom-color: #5b8def; }
+
+/* 관리자 입력 신원 박스 */
+.admin-identity {
+  background: #fff7ec;
+  border: 1px solid #f0dcc0;
+  border-radius: 10px;
+  padding: 10px 12px 12px;
+}
+.admin-badge {
+  display: inline-block;
+  font-size: 12px;
+  font-weight: 700;
+  color: #b06d1a;
+  margin-bottom: 8px;
+}
+.admin-identity label > span { color: #8a6a3a; }
+
 /* 스키마 기반 체크박스 그룹 */
 .field-group {
   border: 1px solid #eef0f5;

@@ -70,7 +70,9 @@ function renderAuthArea() {
   if (s) {
     loginBtn.hidden = true;
     userWrap.hidden = false;
-    if (userText) userText.textContent = `${s.school} · ${s.studentName}${s.topic ? ` · ${s.topic}` : ''}`;
+    if (userText) userText.textContent = s.admin
+      ? '🔑 관리자'
+      : `${s.school} · ${s.studentName}${s.topic ? ` · ${s.topic}` : ''}`;
   } else {
     loginBtn.hidden = false;
     userWrap.hidden = true;
@@ -78,10 +80,36 @@ function renderAuthArea() {
   }
 }
 
+let loginMode = 'student';
+
 function openLoginModal() {
+  setLoginMode('student');
   populateTopicOptions('login-topic');
   populateSchoolOptions('login-school');
   document.getElementById('loginBackdrop').classList.add('open');
+}
+
+// 학생/관리자 로그인 모드 전환 (숨겨진 필드가 제출을 막지 않도록 required 토글)
+function setLoginMode(mode) {
+  loginMode = mode;
+  const isAdmin = mode === 'admin';
+  document.getElementById('loginStudentFields').hidden = isAdmin;
+  document.getElementById('loginAdminFields').hidden = !isAdmin;
+  ['topic', 'school', 'studentId', 'studentName', 'password'].forEach(n => {
+    const el = document.querySelector(`#loginForm [name="${n}"]`);
+    if (el) el.required = !isAdmin;
+  });
+  const adminEl = document.querySelector('#loginForm [name="adminPassword"]');
+  if (adminEl) adminEl.required = isAdmin;
+  const title = document.getElementById('loginTitle');
+  if (title) title.textContent = isAdmin ? '🔑 관리자 로그인' : '🔑 로그인';
+  const link = document.getElementById('loginModeLink');
+  if (link) link.textContent = isAdmin ? '← 학생 로그인' : '관리자 로그인';
+}
+
+function toggleLoginMode(e) {
+  if (e) e.preventDefault();
+  setLoginMode(loginMode === 'admin' ? 'student' : 'admin');
 }
 
 // 로그인 주제 드롭다운: 제출 가능한(input:true) 주제 목록. 기본값=현재 보고 있는 주제.
@@ -98,12 +126,46 @@ function closeLoginModal() {
   document.getElementById('loginBackdrop').classList.remove('open');
   const f = document.getElementById('loginForm');
   if (f) f.reset();
+  setLoginMode('student');
 }
 
 async function handleLogin(e) {
   e.preventDefault();
   const btn = document.getElementById('loginSubmitBtn');
   const fd = new FormData(e.target);
+
+  // 관리자 로그인 분기
+  if (loginMode === 'admin') {
+    const adminPassword = fd.get('adminPassword');
+    if (!adminPassword) { showToast('관리자 비밀번호를 입력해 주세요.', 'error'); return; }
+    btn.disabled = true; btn.textContent = '확인 중...';
+    try {
+      if (typeof MOCK_MODE !== 'undefined' && MOCK_MODE) {
+        setSession({ admin: true, adminPassword });
+        showToast('시연 모드: 관리자 로그인 (검증 생략)', 'success');
+        closeLoginModal();
+        return;
+      }
+      const res = await fetch(CONFIG.GAS_API_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+        body: JSON.stringify({ action: 'login', role: 'admin', adminPassword })
+      });
+      const result = await res.json();
+      if (!result.ok) { showToast(result.error || '관리자 로그인 실패', 'error'); return; }
+      setSession({ admin: true, adminPassword });
+      showToast('관리자로 로그인되었습니다 ✓', 'success');
+      closeLoginModal();
+    } catch (err) {
+      console.error(err);
+      showToast('네트워크 오류로 로그인에 실패했습니다.', 'error');
+    } finally {
+      btn.disabled = false; btn.textContent = '로그인';
+    }
+    return;
+  }
+
+  // 학생 로그인
   const topicId = fd.get('topic');
   const topicObj = TOPICS[topicId];
   if (!topicObj) { showToast('주제를 선택해 주세요.', 'error'); return; }
@@ -227,8 +289,8 @@ function updateFabVisibility() {
   if (!fab) return;
   const topic = currentTopic();
   const s = getSession();
-  // 로그인 상태면 등록한 주제에서만 제출 버튼 노출 (다른 주제는 뷰어). 비로그인이면 input 주제에 노출(클릭 시 로그인 유도).
-  const show = topic.input && (!s || s.topic === topic.apiTopic);
+  // 관리자는 모든 input 주제에서 제출 가능. 학생은 등록한 주제에서만(다른 주제는 뷰어). 비로그인은 input 주제에 노출(클릭 시 로그인 유도).
+  const show = topic.input && (!s || s.admin || s.topic === topic.apiTopic);
   fab.style.display = show ? '' : 'none';
 }
 
@@ -899,6 +961,16 @@ function openModalForEdit(record) {
   renderModalIdentity();
   renderModalFields(topic);
   prefillFields(record);
+  // 관리자 수정: 신원 필드에 기록의 작성자 표시 (백엔드는 신원을 보존하므로 참고용)
+  const s = getSession();
+  if (s && s.admin) {
+    const schoolEl = document.getElementById('admin-school');
+    const sidEl = document.getElementById('admin-sid');
+    const nameEl = document.getElementById('admin-name');
+    if (schoolEl && record.school) schoolEl.value = record.school;
+    if (sidEl) sidEl.value = record.studentId || '';
+    if (nameEl) nameEl.value = record.studentName || '';
+  }
   const title = document.getElementById('modalTitle');
   if (title) title.textContent = '✏️ 기록 수정';
   const submitBtn = document.getElementById('submitBtn');
@@ -953,9 +1025,23 @@ function renderModalIdentity() {
   const el = document.getElementById('modalIdentity');
   if (!el) return;
   const s = getSession();
-  el.innerHTML = s
-    ? `제출자: <strong>${escapeHtml(s.school)}</strong> · ${escapeHtml(s.studentId)} ${escapeHtml(s.studentName)}`
-    : '';
+  if (s && s.admin) {
+    // 관리자 입력: 신원을 직접 지정 (학교 필수, 학번·이름 선택)
+    el.innerHTML = `
+      <div class="admin-identity">
+        <span class="admin-badge">🔑 관리자 입력</span>
+        <label><span>학교 <em>*</em></span><select id="admin-school"></select></label>
+        <div class="form-row">
+          <label><span>학번</span><input type="text" id="admin-sid" maxlength="10" placeholder="선택" /></label>
+          <label><span>이름</span><input type="text" id="admin-name" maxlength="30" placeholder="선택" /></label>
+        </div>
+      </div>`;
+    populateSchoolOptions('admin-school');
+  } else if (s) {
+    el.innerHTML = `제출자: <strong>${escapeHtml(s.school)}</strong> · ${escapeHtml(s.studentId)} ${escapeHtml(s.studentName)}`;
+  } else {
+    el.innerHTML = '';
+  }
 }
 
 function renderModalFields(topic) {
@@ -1148,6 +1234,7 @@ async function handleSubmit(e) {
 
   const fd = new FormData(form);
   const isEdit = !!editingRecord;
+  const isAdmin = !!session.admin;
 
   // pointMode(생태지도) 신규 제출은 좌표 필수 (수정은 기존 좌표 유지)
   if (topic.pointMode && !isEdit && !pickedLatLng) {
@@ -1155,14 +1242,21 @@ async function handleSubmit(e) {
     return;
   }
 
-  // 세션 신원 + topic 기본 payload
-  const payload = {
-    topic: topic.apiTopic,
-    school: session.school,
-    password: session.password,
-    studentId: session.studentId,
-    studentName: session.studentName
-  };
+  // 신원 payload: 관리자는 모달에서 지정한 학교/학번/이름 + 관리자 비번, 학생은 세션값
+  const payload = { topic: topic.apiTopic };
+  if (isAdmin) {
+    const adminSchool = (document.getElementById('admin-school') || {}).value || '';
+    if (!isEdit && !adminSchool) { showToast('학교를 선택해 주세요.', 'error'); return; }
+    payload.adminPassword = session.adminPassword;
+    payload.school = adminSchool;
+    payload.studentId = (document.getElementById('admin-sid') || {}).value || '';
+    payload.studentName = (document.getElementById('admin-name') || {}).value || '';
+  } else {
+    payload.school = session.school;
+    payload.password = session.password;
+    payload.studentId = session.studentId;
+    payload.studentName = session.studentName;
+  }
   if (isEdit) {
     payload.action = 'update';
     payload.timestamp = editingRecord.timestamp;   // 대상 기록 식별
@@ -1240,6 +1334,7 @@ async function handleSubmit(e) {
 function canModifyRecord(record) {
   const s = getSession();
   if (!s || !record) return false;
+  if (s.admin) return true;   // 관리자는 모든 기록 수정·삭제 가능
   return String(s.school) === String(record.school) &&
          String(s.studentId) === String(record.studentId) &&
          String(s.studentName) === String(record.studentName);
@@ -1263,19 +1358,19 @@ async function deleteSelectedRecord() {
     showToast('시연 모드: 삭제는 저장되지 않습니다', 'success');
     return;
   }
+  // 관리자는 관리자 비번으로, 학생은 세션 신원으로 인증
+  const authFields = session.admin
+    ? { adminPassword: session.adminPassword }
+    : { school: session.school, password: session.password, studentId: session.studentId, studentName: session.studentName };
   try {
     const res = await fetch(CONFIG.GAS_API_URL, {
       method: 'POST',
       headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-      body: JSON.stringify({
+      body: JSON.stringify(Object.assign({
         action: 'delete',
         topic: currentTopic().apiTopic,
-        timestamp: rec.timestamp,
-        school: session.school,
-        password: session.password,
-        studentId: session.studentId,
-        studentName: session.studentName
-      })
+        timestamp: rec.timestamp
+      }, authFields))
     });
     const result = await res.json();
     if (!result.ok) {
@@ -1396,6 +1491,7 @@ window.onLocateClick = onLocateClick;
 window.openLoginModal = openLoginModal;
 window.closeLoginModal = closeLoginModal;
 window.handleLogin = handleLogin;
+window.toggleLoginMode = toggleLoginMode;
 window.logout = logout;
 window.repickEcoLocation = repickEcoLocation;
 window.startEditRecord = startEditRecord;
