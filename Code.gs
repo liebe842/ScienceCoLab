@@ -30,11 +30,30 @@ const HEADERS_ECOMAP = [
   '타임스탬프', '학교명', '학번', '이름', '위도', '경도',
   '관찰날짜', '장소설명', '생명체이름', '개체수', '온도', '습도', '사진URL'
 ];
-// 열섬: 앱 모달 입력 → 중앙 스프레드시트 로컬 시트에 저장.
-// 헤더는 TOPIC_SHEETS['열섬'].fields의 match 키워드를 포함하도록 명명한다.
+// 앱 모달 입력 주제들 → 중앙 스프레드시트 로컬 시트에 저장.
+// 헤더는 각 TOPIC_SHEETS[*].fields의 match 키워드를 포함하도록 명명한다.
 const HEADERS_HEAT = [
   '타임스탬프', '학교명', '학번', '이름', '측정날짜', '측정시간',
   '날씨', '측정장소', '바닥상태', '측정환경', '열원', '기온', '사진URL'
+];
+const HEADERS_WEATHER = [
+  '타임스탬프', '학교명', '학번', '이름', '측정날짜', '측정시간', '온도', '사진URL'
+];
+const HEADERS_DUST = [
+  '타임스탬프', '학교명', '학번', '이름', '측정날짜', '측정시간',
+  'PM10', 'PM2.5', '온도', '습도', '날씨', '청소여부', '특이사항', '사진URL'
+];
+const HEADERS_CARBON = [
+  '타임스탬프', '학교명', '학번', '이름', '측정날짜', '측정장소',
+  '종이', '플라스틱', '캔', '일반', '사진URL'
+];
+const HEADERS_SOLAR = [
+  '타임스탬프', '학교명', '학번', '이름', '측정날짜', '측정장소', '측정시간',
+  '온도', '습도', '조도', '전압', '상황', '사진URL'
+];
+const HEADERS_SOUND = [
+  '타임스탬프', '학교명', '학번', '이름', '측정날짜', '측정시간', '측정장소',
+  '온도', '습도', '소음평균', '소음최대', '측정상황', '집중도', '피로도', '장소특징', '특이사항', '사진URL'
 ];
 
 // ─────────────────────────────────────────────
@@ -56,6 +75,11 @@ function setupSheets() {
   ensureSheet_(ss, SHEET_MEASUREMENTS, HEADERS_MEASUREMENTS);
   ensureSheet_(ss, SHEET_ECOMAP, HEADERS_ECOMAP);
   ensureSheet_(ss, '열섬', HEADERS_HEAT);
+  ensureSheet_(ss, '우리나라날씨', HEADERS_WEATHER);
+  ensureSheet_(ss, '미세먼지', HEADERS_DUST);
+  ensureSheet_(ss, '탄소배출', HEADERS_CARBON);
+  ensureSheet_(ss, '태양광', HEADERS_SOLAR);
+  ensureSheet_(ss, '소리데이터', HEADERS_SOUND);
 
   // Schools 시트가 헤더만 있고 비어있으면 예시 1줄 추가
   const schoolsSheet = ss.getSheetByName(SHEET_SCHOOLS);
@@ -377,42 +401,57 @@ const TOPIC_SHEETS = {
       { key: 'photoUrl',    match: ['사진'], type: 'photo' }
     ]
   },
+  // 태양광: 앱 모달 입력 → 중앙 '태양광' 시트
   '태양광': {
-    spreadsheetId: '1jaJYLI9tLyaP38LO3Qv74dW34Zq7CslgDzaUVnZ7Yzc',
-    gid: 571062596,
-    fields: [
-      { key: 'school',   match: ['학교'] },
-      { key: 'date',     match: ['날짜'], type: 'date' },
-      { key: 'location', match: ['장소'], exclude: ['사진'] },
-      { key: 'time',     match: ['시간'], exclude: ['타임'] },
-      { key: 'temp',     match: ['온도'], type: 'number' },
-      { key: 'humidity', match: ['습도'], type: 'number' },
-      { key: 'lux',      match: ['조도'], type: 'number' },
-      { key: 'voltage',  match: ['전압'], type: 'number' },
-      { key: 'weather',  match: ['상황'] },
-      { key: 'photoUrl', match: ['사진'], type: 'photo' }
-    ]
-  },
-  '미세먼지': {
-    spreadsheetId: '1jHmlkB1rAe23YkTAs3DbQ0twiHAs2baakSLD-YTJYFM',
-    gid: 500292976,
-    fields: [
-      { key: 'school',   match: ['학교'] },
-      { key: 'pm10',     match: ['PM10'], type: 'number' },
-      { key: 'pm25',     match: ['PM2.5'], type: 'number' },
-      { key: 'temp',     match: ['온도'], type: 'number' },
-      { key: 'humidity', match: ['습도'], type: 'number' },
-      { key: 'weather',  match: ['날씨'] },
-      { key: 'cleaning', match: ['청소'] },
-      { key: 'airNote',  match: ['특이'] },
-      { key: 'photoUrl', match: ['사진'], type: 'photo' }
-    ]
-  },
-  '우리나라날씨': {
-    spreadsheetId: '1eJhCCEPgMJ-6AcDDdF2WgowE6ORsRz_us1U7BWyP_yE',
-    gid: 1311797838,
+    sheet: '태양광',
+    input: true,
+    writeOrder: ['school', 'studentId', 'studentName', 'date', 'location', 'time',
+                 'temp', 'humidity', 'lux', 'voltage', 'weather', 'photoUrl'],
     fields: [
       { key: 'school',      match: ['학교'] },
+      { key: 'studentId',   match: ['학번'] },
+      { key: 'studentName', match: ['이름'] },
+      { key: 'date',        match: ['날짜'], type: 'date' },
+      { key: 'location',    match: ['장소'], exclude: ['사진'] },
+      { key: 'time',        match: ['시간'], exclude: ['타임'] },
+      { key: 'temp',        match: ['온도'], type: 'number' },
+      { key: 'humidity',    match: ['습도'], type: 'number' },
+      { key: 'lux',         match: ['조도'], type: 'number' },
+      { key: 'voltage',     match: ['전압'], type: 'number' },
+      { key: 'weather',     match: ['상황'] },
+      { key: 'photoUrl',    match: ['사진'], type: 'photo' }
+    ]
+  },
+  // 미세먼지: 앱 모달 입력 → 중앙 '미세먼지' 시트
+  '미세먼지': {
+    sheet: '미세먼지',
+    input: true,
+    writeOrder: ['school', 'studentId', 'studentName', 'date', 'time',
+                 'pm10', 'pm25', 'temp', 'humidity', 'weather', 'cleaning', 'airNote', 'photoUrl'],
+    fields: [
+      { key: 'school',      match: ['학교'] },
+      { key: 'studentId',   match: ['학번'] },
+      { key: 'studentName', match: ['이름'] },
+      { key: 'date',        match: ['날짜'], type: 'date' },
+      { key: 'time',        match: ['시간'], exclude: ['타임'] },
+      { key: 'pm10',        match: ['PM10'], type: 'number' },
+      { key: 'pm25',        match: ['PM2.5'], type: 'number' },
+      { key: 'temp',        match: ['온도'], type: 'number' },
+      { key: 'humidity',    match: ['습도'], type: 'number' },
+      { key: 'weather',     match: ['날씨'] },
+      { key: 'cleaning',    match: ['청소'] },
+      { key: 'airNote',     match: ['특이'] },
+      { key: 'photoUrl',    match: ['사진'], type: 'photo' }
+    ]
+  },
+  // 우리나라날씨: 앱 모달 입력 → 중앙 '우리나라날씨' 시트
+  '우리나라날씨': {
+    sheet: '우리나라날씨',
+    input: true,
+    writeOrder: ['school', 'studentId', 'studentName', 'date', 'time', 'temp', 'photoUrl'],
+    fields: [
+      { key: 'school',      match: ['학교'] },
+      { key: 'studentId',   match: ['학번'] },
       { key: 'studentName', match: ['이름'] },
       { key: 'date',        match: ['날짜'], type: 'date' },
       { key: 'time',        match: ['시간'], exclude: ['타임'] },
@@ -420,14 +459,17 @@ const TOPIC_SHEETS = {
       { key: 'photoUrl',    match: ['사진'], type: 'photo' }
     ]
   },
+  // 탄소배출: 앱 모달 입력 → 중앙 '탄소배출' 시트 (total은 sumFields로 파생, 저장 안 함)
   '탄소배출': {
-    spreadsheetId: '1XkEb8A4PLOltai914_3ab9FOCusqBpVTE2J9v_EcxUQ',
-    gid: 1998820065,
+    sheet: '탄소배출',
+    input: true,
+    writeOrder: ['school', 'studentId', 'studentName', 'date', 'location',
+                 'paper', 'plastic', 'can', 'general', 'photoUrl'],
     sumFields: ['paper', 'plastic', 'can', 'general'],
     fields: [
       { key: 'school',      match: ['학교'] },
       { key: 'studentId',   match: ['학번'] },
-      { key: 'studentName', match: ['성명'] },
+      { key: 'studentName', match: ['이름'] },
       { key: 'date',        match: ['날짜'], type: 'date' },
       { key: 'location',    match: ['장소'], exclude: ['사진'] },
       { key: 'paper',       match: ['종이'], type: 'number' },
@@ -437,18 +479,24 @@ const TOPIC_SHEETS = {
       { key: 'photoUrl',    match: ['사진'], type: 'photo' }
     ]
   },
+  // 소리데이터: 앱 모달 입력 → 중앙 '소리데이터' 시트
   '소리데이터': {
-    spreadsheetId: '1HaGsAOicbfO-Uabp60h3ApC45I0kNr2P3eIETrGa1M8',
-    gid: 812368832,
+    sheet: '소리데이터',
+    input: true,
+    writeOrder: ['school', 'studentId', 'studentName', 'date', 'time', 'location',
+                 'temp', 'humidity', 'soundAvg', 'soundMax', 'situation',
+                 'concentration', 'fatigue', 'placeFeature', 'notes', 'photoUrl'],
     fields: [
       { key: 'school',        match: ['학교'] },
+      { key: 'studentId',     match: ['학번'] },
+      { key: 'studentName',   match: ['이름'] },
       { key: 'date',          match: ['날짜'], type: 'date' },
-      { key: 'location',      match: ['장소'], exclude: ['특징', '사진'] },
       { key: 'time',          match: ['시간'], exclude: ['타임'] },
+      { key: 'location',      match: ['장소'], exclude: ['특징', '사진'] },
       { key: 'temp',          match: ['온도'], type: 'number' },
       { key: 'humidity',      match: ['습도'], type: 'number' },
-      { key: 'soundAvg',      match: ['AVG'], type: 'number' },
-      { key: 'soundMax',      match: ['MAX'], type: 'number' },
+      { key: 'soundAvg',      match: ['평균'], type: 'number' },
+      { key: 'soundMax',      match: ['최대'], type: 'number' },
       { key: 'situation',     match: ['상황'], type: 'tags', options: SOUND_SITUATION_OPTIONS },
       { key: 'concentration', match: ['집중도'] },
       { key: 'fatigue',       match: ['피로도'] },

@@ -16,6 +16,14 @@ const HEAT_ENV_OPTIONS = [
   '주변에 건물이 많음', '나무가 많아 그늘짐', '차량 통행이 잦음',
   '주변에 물(분수, 연못 등)이 있음', '사람들의 이동이 많은 개방된 공간'
 ];
+// 소리데이터 '측정 상황' 체크박스 옵션 (Code.gs의 SOUND_SITUATION_OPTIONS와 동일하게 유지)
+const SOUND_SITUATION_OPTIONS = [
+  '대화소리 많음', '기계음(에어컨, 히터 등)', '외부소음(자동차, 공사 등)', '조용함'
+];
+// 여러 주제 공통 날씨 선택지
+const WEATHER_OPTIONS = ['맑음', '구름조금', '흐림', '비', '눈'];
+// 집중도/피로도 3단계
+const LEVEL_OPTIONS = ['높음', '보통', '낮음'];
 
 const TOPIC_FMT = {
   num(v) {
@@ -82,6 +90,19 @@ const TOPICS = {
     label: '태양광',
     icon: '☀️',
     apiTopic: '태양광',
+    input: true,
+    inputTitle: '☀️ 태양광 측정 기록',
+    inputFields: [
+      { key: 'date',     label: '측정 날짜', type: 'date', required: true },
+      { key: 'location', label: '측정 장소', type: 'text', required: true, maxlength: 60, placeholder: '예: 옥상, 운동장' },
+      { key: 'time',     label: '측정 시간', type: 'time', required: true },
+      { key: 'temp',     label: '온도 (℃)', type: 'number', step: 0.1, required: true },
+      { key: 'humidity', label: '습도 (%)', type: 'number', min: 0, max: 100, step: 1 },
+      { key: 'lux',      label: '조도 (lx)', type: 'number', min: 0, step: 1, required: true },
+      { key: 'voltage',  label: '최대 전압 (V)', type: 'number', step: 0.01, required: true },
+      { key: 'weather',  label: '측정 당시 상황', type: 'select', options: WEATHER_OPTIONS, required: true },
+      { key: 'photo',    label: '측정 사진', type: 'photo', required: true }
+    ],
     chartMetrics: [
       { key: 'voltage', label: '최대 전압 (V)', unit: 'V', color: '#8c6dd9', axis: 'y' }
     ],
@@ -112,6 +133,20 @@ const TOPICS = {
     label: '미세먼지',
     icon: '💨',
     apiTopic: '미세먼지',
+    input: true,
+    inputTitle: '💨 미세먼지 측정 기록',
+    inputFields: [
+      { key: 'date',     label: '측정 날짜', type: 'date', required: true },
+      { key: 'time',     label: '측정 시간', type: 'time', required: true },
+      { key: 'pm10',     label: 'PM10 (㎍/㎥)', type: 'number', min: 0, step: 1, required: true },
+      { key: 'pm25',     label: 'PM2.5 (㎍/㎥)', type: 'number', min: 0, step: 1, required: true },
+      { key: 'temp',     label: '온도 (℃)', type: 'number', step: 0.1 },
+      { key: 'humidity', label: '습도 (%)', type: 'number', min: 0, max: 100, step: 1 },
+      { key: 'weather',  label: '날씨', type: 'select', options: WEATHER_OPTIONS, required: true },
+      { key: 'cleaning', label: '청소 여부', type: 'select', options: ['했음', '안 했음'] },
+      { key: 'airNote',  label: '특이사항', type: 'text', maxlength: 80, placeholder: '주변 상황 등 (선택)' },
+      { key: 'photo',    label: '측정 사진', type: 'photo', required: true }
+    ],
     chartMetrics: [],
     barMode: 'group',
     groupBy: null,
@@ -149,6 +184,14 @@ const TOPICS = {
     label: '우리나라날씨',
     icon: '🌡️',
     apiTopic: '우리나라날씨',
+    input: true,
+    inputTitle: '🌡️ 우리나라날씨 기록',
+    inputFields: [
+      { key: 'date', label: '측정 날짜', type: 'date', required: true },
+      { key: 'time', label: '측정 시간', type: 'time', required: true },
+      { key: 'temp', label: '온도 (℃)', type: 'number', step: 0.1, required: true },
+      { key: 'photo', label: '측정 사진', type: 'photo', required: true }
+    ],
     chartMetrics: [
       { key: 'temp', label: '온도 (℃)', unit: '℃', color: '#d96b3e', axis: 'y' }
     ],
@@ -175,6 +218,17 @@ const TOPICS = {
     label: '탄소배출',
     icon: '🗑️',
     apiTopic: '탄소배출',
+    input: true,
+    inputTitle: '🗑️ 탄소배출(분리수거) 기록',
+    inputFields: [
+      { key: 'date',     label: '측정 날짜', type: 'date', required: true },
+      { key: 'location', label: '측정 장소', type: 'text', required: true, maxlength: 60, placeholder: '예: 3학년 1반' },
+      { key: 'paper',    label: '종이 (g)', type: 'number', min: 0, step: 1, required: true },
+      { key: 'plastic',  label: '플라스틱 (g)', type: 'number', min: 0, step: 1, required: true },
+      { key: 'can',      label: '캔 (g)', type: 'number', min: 0, step: 1, required: true },
+      { key: 'general',  label: '일반쓰레기 (g)', type: 'number', min: 0, step: 1, required: true },
+      { key: 'photo',    label: '측정 사진', type: 'photo', required: true }
+    ],
     chartMetrics: [
       { key: 'paper',   label: '종이',   unit: 'g', color: '#c9a227', axis: 'y' },
       { key: 'plastic', label: '플라스틱', unit: 'g', color: '#4a9ed6', axis: 'y' },
@@ -208,6 +262,23 @@ const TOPICS = {
     label: '소리데이터',
     icon: '🔊',
     apiTopic: '소리데이터',
+    input: true,
+    inputTitle: '🔊 소리데이터 측정 기록',
+    inputFields: [
+      { key: 'date',          label: '측정 날짜', type: 'date', required: true },
+      { key: 'time',          label: '측정 시간', type: 'time', required: true },
+      { key: 'location',      label: '측정 장소', type: 'text', required: true, maxlength: 60, placeholder: '예: 급식실, 복도' },
+      { key: 'temp',          label: '온도 (℃)', type: 'number', step: 0.1 },
+      { key: 'humidity',      label: '습도 (%)', type: 'number', min: 0, max: 100, step: 1 },
+      { key: 'soundAvg',      label: '소리 평균 (dB)', type: 'number', step: 0.1, required: true },
+      { key: 'soundMax',      label: '소리 최대 (dB)', type: 'number', step: 0.1, required: true },
+      { key: 'situation',     label: '측정 상황', type: 'checkbox', options: SOUND_SITUATION_OPTIONS },
+      { key: 'concentration', label: '집중도', type: 'select', options: LEVEL_OPTIONS },
+      { key: 'fatigue',       label: '피로도', type: 'select', options: LEVEL_OPTIONS },
+      { key: 'placeFeature',  label: '장소 특징', type: 'text', maxlength: 60, placeholder: '선택' },
+      { key: 'notes',         label: '특이사항', type: 'text', maxlength: 80, placeholder: '선택' },
+      { key: 'photo',         label: '측정 사진', type: 'photo', required: true }
+    ],
     chartMetrics: [
       { key: 'soundAvg', label: '소리 평균', unit: '', color: '#5b8def', axis: 'y' },
       { key: 'soundMax', label: '소리 최대', unit: '', color: '#d96b3e', axis: 'y' }
