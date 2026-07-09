@@ -996,6 +996,17 @@ function prefillFields(record) {
       document.querySelectorAll(`#modalFields input[name="${cssEscape(f.key)}"]`).forEach(cb => {
         cb.checked = set.has(cb.value);
       });
+    } else if (f.type === 'select' && f.other) {
+      // 저장값이 옵션에 없으면 커스텀 → '기타' + 텍스트 입력에 표시
+      const sel = document.querySelector(`#modalFields [name="${cssEscape(f.key)}"]`);
+      const otherEl = document.getElementById('other-' + f.key);
+      const v = (val === null || val === undefined) ? '' : String(val);
+      const isCustom = v && (f.options || []).indexOf(v) === -1;
+      if (sel) sel.value = isCustom ? f.other : v;
+      if (otherEl) {
+        otherEl.hidden = !isCustom;
+        otherEl.value = isCustom ? v : '';
+      }
     } else {
       const el = document.querySelector(`#modalFields [name="${cssEscape(f.key)}"]`);
       if (el) el.value = (val === null || val === undefined) ? '' : val;
@@ -1071,7 +1082,13 @@ function renderField(f) {
     const opts = ['<option value="">선택하세요</option>']
       .concat((f.options || []).map(o => `<option value="${escapeAttr(o)}">${escapeHtml(o)}</option>`))
       .join('');
-    return `<label>${label}<select name="${escapeAttr(f.key)}"${f.required ? ' required' : ''}>${opts}</select></label>`;
+    const otherAttr = f.other ? ` data-other="${escapeAttr(f.other)}"` : '';
+    let html = `<label>${label}<select name="${escapeAttr(f.key)}"${f.required ? ' required' : ''}${otherAttr}>${opts}</select></label>`;
+    // '기타' 선택 시 직접 입력 칸 (기본 숨김)
+    if (f.other) {
+      html += `<input type="text" class="other-input" id="other-${escapeAttr(f.key)}" maxlength="${f.maxlength || 60}" placeholder="${escapeAttr(f.otherPlaceholder || '직접 입력')}" hidden />`;
+    }
+    return html;
   }
 
   if (f.type === 'checkbox') {
@@ -1128,11 +1145,21 @@ function prefillDate() {
   if (el) el.value = `${now.getFullYear()}-${mm}-${dd}`;
 }
 
-// 사진 미리보기
+// 사진 미리보기 + '기타' 선택 시 직접 입력 칸 토글
 document.addEventListener('change', (e) => {
   if (e.target && e.target.id === 'f-photo') {
     const file = e.target.files[0];
     showPhotoPreview(file);
+  }
+  // select에 data-other가 있고, 그 값이 선택되면 아래 텍스트 입력 노출
+  if (e.target && e.target.tagName === 'SELECT' && e.target.dataset.other) {
+    const other = document.getElementById('other-' + e.target.name);
+    if (other) {
+      const show = e.target.value === e.target.dataset.other;
+      other.hidden = !show;
+      if (!show) other.value = '';
+      else other.focus();
+    }
   }
 });
 
@@ -1267,12 +1294,23 @@ async function handleSubmit(e) {
 
   // 스키마 필드 수집
   let photoFile = null;
+  let otherMissing = false;
   (topic.inputFields || []).forEach(f => {
     if (f.type === 'coord') return;
     if (f.type === 'photo') { photoFile = fd.get('photo'); return; }
     if (f.type === 'checkbox') { payload[f.key] = fd.getAll(f.key); return; }
+    // '기타' 선택 시 아래 텍스트 입력값을 대신 사용
+    if (f.type === 'select' && f.other && fd.get(f.key) === f.other) {
+      const otherEl = document.getElementById('other-' + f.key);
+      const v = otherEl ? otherEl.value.trim() : '';
+      if (f.required && !v) otherMissing = true;
+      payload[f.key] = v;
+      return;
+    }
     payload[f.key] = fd.get(f.key);
   });
+
+  if (otherMissing) { showToast('"기타"를 선택한 항목의 내용을 입력해 주세요.', 'error'); return; }
 
   // 사진 필수 검사 (수정 시엔 기존 사진 유지되므로 재첨부 강제하지 않음)
   const photoField = (topic.inputFields || []).find(f => f.type === 'photo');

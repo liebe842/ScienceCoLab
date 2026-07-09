@@ -1023,6 +1023,9 @@ body {
 }
 .admin-identity label > span { color: #8a6a3a; }
 
+/* '기타' 선택 시 직접 입력 칸 */
+.other-input { margin-top: 6px; }
+
 /* 스키마 기반 체크박스 그룹 */
 .field-group {
   border: 1px solid #eef0f5;
