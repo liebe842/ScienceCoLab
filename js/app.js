@@ -1241,6 +1241,20 @@ function prefillFields(record) {
         otherEl.hidden = !isCustom;
         otherEl.value = isCustom ? v : '';
       }
+    } else if (f.type === 'select') {
+      // other 없는 select: 저장값이 옵션 목록에 없으면(옛/외부 데이터, 표기 차이 등)
+      // 옵션을 동적 추가해 프리필한다. 안 그러면 required select가 빈 채 열려 제출이 막힘.
+      const sel = document.querySelector(`#modalFields [name="${cssEscape(f.key)}"]`);
+      const v = (val === null || val === undefined) ? '' : String(val);
+      if (sel) {
+        if (v && !Array.from(sel.options).some(o => o.value === v)) {
+          const opt = document.createElement('option');
+          opt.value = v;
+          opt.textContent = v;
+          sel.appendChild(opt);
+        }
+        sel.value = v;
+      }
     } else {
       const el = document.querySelector(`#modalFields [name="${cssEscape(f.key)}"]`);
       if (el) el.value = (val === null || val === undefined) ? '' : val;

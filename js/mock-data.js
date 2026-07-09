@@ -39,7 +39,7 @@ const MOCK_DATA = (() => {
     { time: '12:00', location: '학교 현관', surface: '보도블록', delta: 0.2 },
     { time: '14:30', location: '학교숲',    surface: '잔디',    delta: -3.4 }
   ];
-  const HEAT_WEATHER = ['맑음', '맑음', '구름 많음'];
+  const HEAT_WEATHER = ['맑음', '맑음', '구름많음'];
   const HEAT_ENV = [
     ['주변에 건물이 많음', '차량 통행이 잦음'],
     ['주변에 건물이 많음'],
