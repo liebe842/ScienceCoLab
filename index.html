@@ -53,6 +53,10 @@
     <h2 id="sb-school">학교명</h2>
     <p class="meta" id="sb-meta">측정 일시</p>
 
+    <div id="sb-student-filter" class="sb-student-filter" style="display:none">
+      <label>학생 <select id="sb-student" onchange="onStudentFilterChange()"></select></label>
+    </div>
+
     <div class="section-title" id="sb-viz-title">측정값 시각화</div>
     <div class="chart-container" id="chart-bar-box">
       <div class="chart-subtitle" id="chart-bar-title">📊 측정 장소별 평균</div>

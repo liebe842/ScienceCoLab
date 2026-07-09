@@ -759,10 +759,9 @@ function openSidebar(school) {
   const topic = currentTopic();
   const sidebar = document.getElementById('sidebar');
   const records = school.measurements || [];
-  const latest = records[0];
 
-  // 사이드바 상태 초기화 (학교 바뀔 때마다 리셋)
-  sidebarState = { school };
+  // 사이드바 상태 초기화 (학교 바뀔 때마다 리셋). allRecords 보관 → 학생 필터에 사용.
+  sidebarState = { school, allRecords: records, studentFilter: '' };
 
   document.getElementById('sb-school').textContent = school.school;
 
@@ -782,9 +781,42 @@ function openSidebar(school) {
   document.getElementById('sb-notes-title').style.display = showNotes ? '' : 'none';
   document.getElementById('sb-notes').style.display = showNotes ? '' : 'none';
 
+  renderStudentFilter(topic, records);   // 학생 필터 드롭다운 (학생 2명 이상일 때만)
+  renderSchoolBody(records);             // 전체 기록으로 최초 렌더
+
+  sidebar.classList.add('open');
+}
+
+// 학생 필터 드롭다운 채우기 (집계 주제 + 학생 2명 이상일 때만 노출)
+function renderStudentFilter(topic, records) {
+  const wrap = document.getElementById('sb-student-filter');
+  const sel = document.getElementById('sb-student');
+  if (!wrap || !sel) return;
+  const counts = {};
+  records.forEach(r => { const n = r.studentName; if (n) counts[n] = (counts[n] || 0) + 1; });
+  const names = Object.keys(counts).sort((a, b) => a.localeCompare(b, 'ko'));
+  if (topic.pointMode || names.length <= 1) { wrap.style.display = 'none'; sel.innerHTML = ''; return; }
+  sel.innerHTML = '<option value="">전체</option>' +
+    names.map(n => `<option value="${escapeAttr(n)}">${escapeHtml(n)} (${counts[n]}건)</option>`).join('');
+  wrap.style.display = '';
+}
+
+// 학생 필터 변경 → 그 학생 기록만으로 재렌더
+function onStudentFilterChange() {
+  const sel = document.getElementById('sb-student');
+  const name = sel ? sel.value : '';
+  sidebarState.studentFilter = name;
+  const all = sidebarState.allRecords || [];
+  renderSchoolBody(name ? all.filter(r => String(r.studentName) === name) : all);
+}
+
+// (필터 적용된) 기록으로 메타 + 차트 + 선택기록 렌더
+function renderSchoolBody(records) {
+  const topic = currentTopic();
+  const latest = records[0];
   if (records.length === 0) {
     document.getElementById('sb-meta').textContent =
-      '아직 측정 기록이 없습니다 · Google Forms로 제출하면 이곳에 표시됩니다';
+      sidebarState.studentFilter ? '이 학생의 기록이 없습니다' : '아직 측정 기록이 없습니다 · 측정 후 제출하면 이곳에 표시됩니다';
     showSelectedRecord(null);
     renderLineChart([]);
     renderChart([]);
@@ -803,8 +835,6 @@ function openSidebar(school) {
     renderLineChart(records);
     renderChart(records);
   }
-
-  sidebar.classList.add('open');
 }
 
 // ─────────────────────────────────────────────
@@ -1745,6 +1775,7 @@ window.closeModal = closeModal;
 window.handleSubmit = handleSubmit;
 window.closeSidebar = closeSidebar;
 window.closeLightbox = closeLightbox;
+window.onStudentFilterChange = onStudentFilterChange;
 window.onFabClick = onFabClick;
 window.onLocateClick = onLocateClick;
 window.openLoginModal = openLoginModal;
