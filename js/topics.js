@@ -135,6 +135,7 @@ const TOPICS = {
     input: true,
     inputTitle: '💨 미세먼지 측정 기록',
     inputFields: [
+      { key: 'date',     label: '측정 날짜', type: 'date', required: true },
       { key: 'pm10',     label: 'PM10 미세먼지 농도 평균 (㎍/㎥)', type: 'number', min: 0, step: 1, required: true },
       { key: 'pm25',     label: 'PM2.5 초미세먼지 농도 평균 (㎍/㎥)', type: 'number', min: 0, step: 1, required: true },
       { key: 'temp',     label: '측정 온도 평균 (℃)', type: 'number', step: 0.1, required: true },
