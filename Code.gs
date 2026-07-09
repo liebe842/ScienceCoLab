@@ -20,8 +20,13 @@ const PHOTO_FOLDER_ID = '12Elqhe2Vq3sUHHF744CdEtp218dHH6dE';
 const SHEET_SCHOOLS = 'Schools';
 const SHEET_MEASUREMENTS = 'Measurements';
 const SHEET_ECOMAP = '생태지도';   // 앱 지도입력 관찰 저장 (앱이 소유하는 로컬 시트)
+const SHEET_STUDENTS = 'Students';  // 학생 명부 (로그인 검증용)
 
 const HEADERS_SCHOOLS = ['학교명', '위도', '경도', '비밀번호'];
+// 학생 명부: 로그인 시 (주제·학교·학번·이름) 4개가 모두 일치해야 통과.
+// '주제' 값은 앱의 주제명(apiTopic)과 정확히 일치해야 함:
+//   열섬 · 태양광 · 미세먼지 · 우리나라날씨 · 탄소배출 · 소리데이터 · 생태지도
+const HEADERS_STUDENTS = ['학교명', '학번', '이름', '주제'];
 const HEADERS_MEASUREMENTS = [
   '타임스탬프', '학교명', '학생이름', '측정날짜', '측정시간',
   '측정장소', '기온', '습도', '주변환경', '특이사항', '사진URL'
@@ -72,6 +77,7 @@ function setupSheets() {
   const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
 
   ensureSheet_(ss, SHEET_SCHOOLS, HEADERS_SCHOOLS);
+  ensureSheet_(ss, SHEET_STUDENTS, HEADERS_STUDENTS);
   ensureSheet_(ss, SHEET_MEASUREMENTS, HEADERS_MEASUREMENTS);
   ensureSheet_(ss, SHEET_ECOMAP, HEADERS_ECOMAP);
   ensureSheet_(ss, '열섬', HEADERS_HEAT);
@@ -191,7 +197,11 @@ function doPost(e) {
   }
 }
 
-// 로그인: 학교 + 비번 검증. 성공 시 세션에 저장할 학교명 반환.
+// 로그인: 학교 비번 검증 + (명부 있으면) 주제·학번·이름 명부 대조.
+//   1) 학교 비번 일치 필수
+//   2) Students 시트에 그 학교 명단이 있으면 → (주제·학번·이름) 4개가 모두 일치해야 통과
+//      (등록 주제와 다른 주제 선택 시 로그인 실패)
+//   3) 그 학교 명단이 없으면(명부 미비 전환기) → 비번만으로 통과 (기존 동작)
 function login_(data) {
   const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
   const target = readSchools_(ss).find(s => s.name === data.school);
@@ -199,7 +209,42 @@ function login_(data) {
   if (String(target.password) !== String(data.password)) {
     return { ok: false, error: '비밀번호가 올바르지 않습니다.' };
   }
+
+  const roster = readStudents_(ss);
+  const schoolRoster = roster.filter(r => r.school === target.name);
+  if (schoolRoster.length > 0) {
+    const inId   = normKey_(data.studentId);
+    const inName = normKey_(data.studentName);
+    const inTopic = normKey_(data.topic);
+    const match = schoolRoster.some(r =>
+      normKey_(r.studentId) === inId &&
+      normKey_(r.name) === inName &&
+      normKey_(r.topic) === inTopic
+    );
+    if (!match) return { ok: false, error: '등록 정보와 일치하지 않습니다.' };
+  }
+
   return { ok: true, school: target.name };
+}
+
+// 비교용 정규화: 앞뒤/내부 공백 제거 (띄어쓰기 차이로 인한 오탐 방지)
+function normKey_(v) {
+  return String(v === null || v === undefined ? '' : v).replace(/\s+/g, '');
+}
+
+// 학생 명부 읽기: [{school, studentId, name, topic}]
+function readStudents_(ss) {
+  const sheet = ss.getSheetByName(SHEET_STUDENTS);
+  if (!sheet || sheet.getLastRow() < 2) return [];
+  const rows = sheet.getDataRange().getValues().slice(1);
+  return rows
+    .filter(r => r[0] && r[1] !== '' && r[2] !== '')  // 학교·학번·이름 있는 행만
+    .map(r => ({
+      school: String(r[0]).trim(),
+      studentId: String(r[1]).trim(),
+      name: String(r[2]).trim(),
+      topic: String(r[3] || '').trim()
+    }));
 }
 
 // 제네릭 주제 제출: 비번 검증 → 사진 저장(선택) → cfg.writeOrder 순서로 시트에 append.

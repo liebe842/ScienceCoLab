@@ -57,8 +57,8 @@ function getSession() {
   try { return JSON.parse(sessionStorage.getItem(SESSION_KEY) || 'null'); }
   catch (e) { return null; }
 }
-function setSession(s) { sessionStorage.setItem(SESSION_KEY, JSON.stringify(s)); renderAuthArea(); }
-function clearSession() { sessionStorage.removeItem(SESSION_KEY); renderAuthArea(); }
+function setSession(s) { sessionStorage.setItem(SESSION_KEY, JSON.stringify(s)); renderAuthArea(); updateFabVisibility(); }
+function clearSession() { sessionStorage.removeItem(SESSION_KEY); renderAuthArea(); updateFabVisibility(); }
 function isLoggedIn() { return !!getSession(); }
 
 function renderAuthArea() {
@@ -70,7 +70,7 @@ function renderAuthArea() {
   if (s) {
     loginBtn.hidden = true;
     userWrap.hidden = false;
-    if (userText) userText.textContent = `${s.school} · ${s.studentName}`;
+    if (userText) userText.textContent = `${s.school} · ${s.studentName}${s.topic ? ` · ${s.topic}` : ''}`;
   } else {
     loginBtn.hidden = false;
     userWrap.hidden = true;
@@ -79,8 +79,20 @@ function renderAuthArea() {
 }
 
 function openLoginModal() {
+  populateTopicOptions('login-topic');
   populateSchoolOptions('login-school');
   document.getElementById('loginBackdrop').classList.add('open');
+}
+
+// 로그인 주제 드롭다운: 제출 가능한(input:true) 주제 목록. 기본값=현재 보고 있는 주제.
+function populateTopicOptions(selectId) {
+  const select = document.getElementById(selectId);
+  if (!select) return;
+  const inputTopics = Object.values(TOPICS).filter(t => t.input);
+  select.innerHTML = '<option value="">주제를 선택하세요</option>' +
+    inputTopics.map(t => `<option value="${escapeAttr(t.id)}">${escapeHtml(t.label)}</option>`).join('');
+  const cur = currentTopic();
+  if (cur && cur.input) select.value = cur.id;
 }
 function closeLoginModal() {
   document.getElementById('loginBackdrop').classList.remove('open');
@@ -92,7 +104,12 @@ async function handleLogin(e) {
   e.preventDefault();
   const btn = document.getElementById('loginSubmitBtn');
   const fd = new FormData(e.target);
+  const topicId = fd.get('topic');
+  const topicObj = TOPICS[topicId];
+  if (!topicObj) { showToast('주제를 선택해 주세요.', 'error'); return; }
   const cred = {
+    topicId: topicObj.id,
+    topic: topicObj.apiTopic,          // 명부 대조·제출용 주제명 (예: '열섬')
     school: fd.get('school'),
     studentId: fd.get('studentId'),
     studentName: fd.get('studentName'),
@@ -108,12 +125,20 @@ async function handleLogin(e) {
       setSession(cred);
       showToast('시연 모드: 로그인되었습니다 (검증 생략)', 'success');
       closeLoginModal();
+      switchTopic(cred.topicId);
       return;
     }
     const res = await fetch(CONFIG.GAS_API_URL, {
       method: 'POST',
       headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-      body: JSON.stringify({ action: 'login', school: cred.school, password: cred.password })
+      body: JSON.stringify({
+        action: 'login',
+        topic: cred.topic,
+        school: cred.school,
+        studentId: cred.studentId,
+        studentName: cred.studentName,
+        password: cred.password
+      })
     });
     const result = await res.json();
     if (!result.ok) {
@@ -123,6 +148,7 @@ async function handleLogin(e) {
     setSession(cred);
     showToast('로그인되었습니다 ✓', 'success');
     closeLoginModal();
+    switchTopic(cred.topicId);          // 로그인한 주제 지도로 전환
   } catch (err) {
     console.error(err);
     showToast('네트워크 오류로 로그인에 실패했습니다.', 'error');
@@ -198,7 +224,12 @@ function showMyLocation(loc) {
 // 앱 입력(FAB)은 input:true 주제(생태지도)에서만 표시
 function updateFabVisibility() {
   const fab = document.getElementById('fab');
-  if (fab) fab.style.display = currentTopic().input ? '' : 'none';
+  if (!fab) return;
+  const topic = currentTopic();
+  const s = getSession();
+  // 로그인 상태면 등록한 주제에서만 제출 버튼 노출 (다른 주제는 뷰어). 비로그인이면 input 주제에 노출(클릭 시 로그인 유도).
+  const show = topic.input && (!s || s.topic === topic.apiTopic);
+  fab.style.display = show ? '' : 'none';
 }
 
 // 카카오맵 줌 레벨: 1(가장 확대) ~ 14(가장 축소)
