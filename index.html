@@ -36,6 +36,7 @@
       <button type="button" id="loginBtn" class="auth-btn" onclick="openLoginModal()">로그인</button>
       <span id="authUser" class="auth-user" hidden>
         <span id="authUserText"></span>
+        <button type="button" class="auth-data" onclick="openDataModal()">📋 데이터</button>
         <button type="button" class="auth-logout" onclick="logout()">로그아웃</button>
       </span>
     </div>
@@ -156,6 +157,21 @@
           <a href="#" id="loginModeLink" onclick="toggleLoginMode(event)">관리자 로그인</a>
         </div>
       </form>
+    </div>
+  </div>
+
+  <!-- 데이터 표 보기 모달 (본인 주제 raw 데이터) -->
+  <div id="dataBackdrop" class="modal-backdrop">
+    <div class="modal modal-wide" role="dialog" aria-labelledby="dataTitle">
+      <div class="modal-header">
+        <h2 id="dataTitle">📋 데이터</h2>
+        <button type="button" class="close-btn" onclick="closeDataModal()">✕</button>
+      </div>
+      <div class="data-toolbar">
+        <span id="dataCount" class="data-count"></span>
+        <button type="button" class="btn-primary" id="csvBtn" onclick="downloadTopicCsv()">⬇ CSV 다운로드</button>
+      </div>
+      <div id="dataTableWrap" class="data-table-wrap"></div>
     </div>
   </div>
 

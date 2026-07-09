@@ -225,6 +225,113 @@ function logout() {
   showToast('로그아웃되었습니다.', '');
 }
 
+// ─────────────────────────────────────────────
+// 데이터 표 보기 (본인 주제 raw 데이터) + CSV 다운로드
+//   학생: 로그인한 주제만. 관리자: 현재 주제. (다른 시트·비번은 노출 안 됨)
+// ─────────────────────────────────────────────
+let dataView = { topic: null, rows: [], cols: [] };
+
+async function openDataModal() {
+  const s = getSession();
+  if (!s) { openLoginModal(); return; }
+  const topicObj = s.admin ? currentTopic() : TOPICS[s.topicId];
+  if (!topicObj) { showToast('주제를 확인할 수 없습니다.', 'error'); return; }
+
+  document.getElementById('dataTitle').textContent = `📋 ${topicObj.label} 데이터`;
+  document.getElementById('dataCount').textContent = '';
+  document.getElementById('dataTableWrap').innerHTML = '<div class="data-loading">불러오는 중…</div>';
+  document.getElementById('dataBackdrop').classList.add('open');
+
+  try {
+    const rows = await getTopicRows(topicObj);
+    dataView = { topic: topicObj, rows: rows, cols: tableColumns(topicObj) };
+    renderDataTable();
+    document.getElementById('dataCount').textContent = `총 ${rows.length}건`;
+  } catch (e) {
+    console.error(e);
+    document.getElementById('dataTableWrap').innerHTML = '<div class="data-loading">데이터를 불러오지 못했습니다.</div>';
+  }
+}
+
+function closeDataModal() {
+  document.getElementById('dataBackdrop').classList.remove('open');
+}
+
+// 주제 데이터를 평평한 레코드 배열로 반환 (캐시 우선)
+async function getTopicRows(topicObj) {
+  let raw = topicDataCache[topicObj.id];
+  if (!raw) {
+    if (typeof MOCK_MODE !== 'undefined' && MOCK_MODE) {
+      const mock = MOCK_DATA[topicObj.apiTopic];
+      raw = topicObj.pointMode ? ((mock && mock.observations) || []) : ((mock && mock.schools) || []);
+    } else {
+      const res = await fetch(`${CONFIG.GAS_API_URL}?topic=${encodeURIComponent(topicObj.apiTopic)}`);
+      const data = await res.json();
+      raw = topicObj.pointMode
+        ? (Array.isArray(data.observations) ? data.observations : [])
+        : (Array.isArray(data.schools) ? data.schools : []);
+      topicDataCache[topicObj.id] = raw;
+    }
+  }
+  if (topicObj.pointMode) return raw.slice();
+  const rows = [];
+  raw.forEach(s => (s.measurements || []).forEach(m => rows.push(Object.assign({}, m, { school: m.school || s.school }))));
+  return rows;
+}
+
+// 표 컬럼: 학교·학번·이름 + 주제 입력필드 + 사진
+function tableColumns(topicObj) {
+  const cols = [
+    { key: 'school', label: '학교' },
+    { key: 'studentId', label: '학번' },
+    { key: 'studentName', label: '이름' }
+  ];
+  (topicObj.inputFields || []).forEach(f => {
+    if (f.type === 'coord') { cols.push({ key: 'lat', label: '위도' }); cols.push({ key: 'lng', label: '경도' }); return; }
+    if (f.type === 'photo') { cols.push({ key: 'photoUrl', label: '사진', photo: true }); return; }
+    cols.push({ key: f.key, label: f.label });
+  });
+  return cols;
+}
+
+function renderDataTable() {
+  const { rows, cols } = dataView;
+  const head = '<tr>' + cols.map(c => `<th>${escapeHtml(c.label)}</th>`).join('') + '</tr>';
+  const body = rows.map(r => '<tr>' + cols.map(c => {
+    if (c.photo) return r.photoUrl ? `<td><a href="${escapeAttr(r.photoUrl)}" target="_blank" rel="noopener">보기</a></td>` : '<td></td>';
+    let v = r[c.key];
+    if (Array.isArray(v)) v = v.join(', ');
+    return `<td>${escapeHtml(v == null ? '' : String(v))}</td>`;
+  }).join('') + '</tr>').join('');
+  const wrap = document.getElementById('dataTableWrap');
+  wrap.innerHTML = rows.length
+    ? `<table class="data-table"><thead>${head}</thead><tbody>${body}</tbody></table>`
+    : '<div class="data-loading">아직 기록이 없습니다.</div>';
+}
+
+function downloadTopicCsv() {
+  const { topic, rows, cols } = dataView;
+  if (!topic || !rows.length) { showToast('내보낼 데이터가 없습니다.', 'error'); return; }
+  const esc = v => { const s = String(v == null ? '' : v).replace(/"/g, '""'); return /[",\n]/.test(s) ? '"' + s + '"' : s; };
+  const header = cols.map(c => esc(c.label)).join(',');
+  const lines = rows.map(r => cols.map(c => {
+    if (c.photo) return esc(r.photoUrl || '');
+    let v = r[c.key];
+    if (Array.isArray(v)) v = v.join(' | ');
+    return esc(v);
+  }).join(','));
+  const csv = '﻿' + [header].concat(lines).join('\r\n');
+  const blob = new Blob([csv], { type: 'text/csv;charset=utf-8' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `${topic.label}_데이터_${new Date().toISOString().slice(0, 10)}.csv`;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+
 // FAB(+) 클릭: 로그인 확인 → 주제별 입력 시작
 function onFabClick() {
   const topic = currentTopic();
@@ -1570,6 +1677,9 @@ window.closeLoginModal = closeLoginModal;
 window.handleLogin = handleLogin;
 window.toggleLoginMode = toggleLoginMode;
 window.logout = logout;
+window.openDataModal = openDataModal;
+window.closeDataModal = closeDataModal;
+window.downloadTopicCsv = downloadTopicCsv;
 window.repickEcoLocation = repickEcoLocation;
 window.startEditRecord = startEditRecord;
 window.deleteSelectedRecord = deleteSelectedRecord;

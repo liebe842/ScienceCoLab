@@ -983,6 +983,56 @@ body {
   cursor: pointer;
 }
 .auth-logout:hover { background: #eaeef6; color: #555; }
+.auth-data {
+  background: #eef3fd;
+  color: #4a6dc7;
+  border: 1px solid #d4e0f5;
+  border-radius: 12px;
+  padding: 3px 10px;
+  font-size: 11px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.auth-data:hover { background: #e2ebfb; }
+
+/* ───── 데이터 표 모달 ───── */
+.modal-wide { max-width: min(920px, 94vw); width: 100%; }
+.data-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 10px;
+}
+.data-count { font-size: 13px; color: #667; }
+.data-table-wrap {
+  overflow: auto;
+  max-height: 62vh;
+  border: 1px solid #eef0f5;
+  border-radius: 8px;
+}
+.data-loading { padding: 30px; text-align: center; color: #999; font-size: 13px; }
+.data-table {
+  border-collapse: collapse;
+  width: 100%;
+  font-size: 12.5px;
+  white-space: nowrap;
+}
+.data-table th, .data-table td {
+  border: 1px solid #eef0f5;
+  padding: 6px 10px;
+  text-align: left;
+}
+.data-table thead th {
+  position: sticky;
+  top: 0;
+  background: #e8eef9;
+  color: #2d3e5e;
+  font-weight: 700;
+  z-index: 1;
+}
+.data-table tbody tr:nth-child(even) { background: #fafbfd; }
+.data-table a { color: #4a6dc7; font-weight: 600; }
 
 /* ───── 로그인/설문 모달 보조 ───── */
 .modal-narrow { max-width: 380px; }
