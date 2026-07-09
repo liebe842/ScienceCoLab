@@ -168,8 +168,11 @@
         <button type="button" class="close-btn" onclick="closeDataModal()">✕</button>
       </div>
       <div class="data-toolbar">
-        <span id="dataCount" class="data-count"></span>
-        <button type="button" class="btn-primary" id="csvBtn" onclick="downloadTopicCsv()">⬇ CSV 다운로드</button>
+        <div id="dataFilters" class="data-filters"></div>
+        <div class="data-toolbar-right">
+          <span id="dataCount" class="data-count"></span>
+          <button type="button" class="btn-primary" id="csvBtn" onclick="downloadTopicCsv()">⬇ CSV 다운로드</button>
+        </div>
       </div>
       <div id="dataTableWrap" class="data-table-wrap"></div>
     </div>

@@ -226,10 +226,25 @@ function logout() {
 }
 
 // ─────────────────────────────────────────────
-// 데이터 표 보기 (본인 주제 raw 데이터) + CSV 다운로드
+// 데이터 표 보기 (본인 주제 raw 데이터) + 필터·정렬 + CSV 다운로드
 //   학생: 로그인한 주제만. 관리자: 현재 주제. (다른 시트·비번은 노출 안 됨)
 // ─────────────────────────────────────────────
-let dataView = { topic: null, rows: [], cols: [] };
+let dataView = { topic: null, rows: [], cols: [], filters: {}, sort: { key: null, dir: 1 } };
+
+// 표 헤더용 짧은 라벨 (컬럼 키 → 짧은 이름)
+const SHORT_LABELS = {
+  school: '학교', studentId: '학번', studentName: '이름', date: '날짜', time: '시간',
+  temp: '온도', humidity: '습도', pm10: 'PM10', pm25: 'PM2.5', weather: '날씨',
+  cleaning: '청소', airNote: '특이사항', location: '장소', surface: '바닥',
+  environment: '환경', heatSource: '열원', lux: '조도', voltage: '전압',
+  soundAvg: '소리평균', soundMax: '소리최대', situation: '상황', concentration: '집중도',
+  fatigue: '피로도', placeFeature: '장소특징', notes: '특이사항', paper: '종이',
+  plastic: '플라스틱', can: '캔', general: '일반', species: '생명체', count: '개체수',
+  photoUrl: '사진', lat: '위도', lng: '경도'
+};
+function shortLabel(key, full) {
+  return SHORT_LABELS[key] || String(full || key).replace(/\s*\(.*$/, '').trim();
+}
 
 async function openDataModal() {
   const s = getSession();
@@ -239,14 +254,15 @@ async function openDataModal() {
 
   document.getElementById('dataTitle').textContent = `📋 ${topicObj.label} 데이터`;
   document.getElementById('dataCount').textContent = '';
+  document.getElementById('dataFilters').innerHTML = '';
   document.getElementById('dataTableWrap').innerHTML = '<div class="data-loading">불러오는 중…</div>';
   document.getElementById('dataBackdrop').classList.add('open');
 
   try {
     const rows = await getTopicRows(topicObj);
-    dataView = { topic: topicObj, rows: rows, cols: tableColumns(topicObj) };
+    dataView = { topic: topicObj, rows: rows, cols: tableColumns(topicObj), filters: {}, sort: { key: null, dir: 1 } };
+    renderDataFilters();
     renderDataTable();
-    document.getElementById('dataCount').textContent = `총 ${rows.length}건`;
   } catch (e) {
     console.error(e);
     document.getElementById('dataTableWrap').innerHTML = '<div class="data-loading">데이터를 불러오지 못했습니다.</div>';
@@ -279,7 +295,7 @@ async function getTopicRows(topicObj) {
   return rows;
 }
 
-// 표 컬럼: 학교·학번·이름 + 주제 입력필드 + 사진
+// 표 컬럼: 학교·학번·이름 + 주제 입력필드 + 사진 (short = 표 헤더, label = CSV 헤더)
 function tableColumns(topicObj) {
   const cols = [
     { key: 'school', label: '학교' },
@@ -291,30 +307,89 @@ function tableColumns(topicObj) {
     if (f.type === 'photo') { cols.push({ key: 'photoUrl', label: '사진', photo: true }); return; }
     cols.push({ key: f.key, label: f.label });
   });
+  cols.forEach(c => { c.short = shortLabel(c.key, c.label); });
   return cols;
 }
 
+// 필터 UI: 학교 / 학생(이름) / 날짜 드롭다운 (값이 있을 때만)
+function renderDataFilters() {
+  const { rows } = dataView;
+  const distinct = key => {
+    const set = new Set();
+    rows.forEach(r => { const v = r[key]; if (v !== null && v !== undefined && v !== '') set.add(String(v)); });
+    return Array.from(set).sort((a, b) => a.localeCompare(b, 'ko'));
+  };
+  const mk = (key, label, values) => values.length
+    ? `<label class="data-filter"><span>${label}</span><select data-filter="${key}">` +
+        `<option value="">전체</option>` +
+        values.map(v => `<option value="${escapeAttr(v)}">${escapeHtml(v)}</option>`).join('') +
+      `</select></label>`
+    : '';
+  const html = mk('school', '학교', distinct('school')) +
+               mk('studentName', '학생', distinct('studentName')) +
+               mk('date', '날짜', distinct('date'));
+  document.getElementById('dataFilters').innerHTML = html;
+}
+
+// 필터/정렬 변경 이벤트 (위임)
+document.addEventListener('change', (e) => {
+  if (e.target && e.target.dataset && e.target.dataset.filter) {
+    dataView.filters[e.target.dataset.filter] = e.target.value;
+    renderDataTable();
+  }
+});
+
+// 현재 필터·정렬을 적용한 행 목록
+function currentDataRows() {
+  const { rows, filters, sort } = dataView;
+  let out = rows.filter(r => Object.keys(filters).every(k => !filters[k] || String(r[k] == null ? '' : r[k]) === filters[k]));
+  if (sort.key) {
+    out = out.slice().sort((a, b) => {
+      const av = a[sort.key], bv = b[sort.key];
+      const an = Number(av), bn = Number(bv);
+      let cmp;
+      if (av !== '' && bv !== '' && !isNaN(an) && !isNaN(bn)) cmp = an - bn;
+      else cmp = String(av == null ? '' : av).localeCompare(String(bv == null ? '' : bv), 'ko');
+      return cmp * sort.dir;
+    });
+  }
+  return out;
+}
+
+function setDataSort(key) {
+  const s = dataView.sort;
+  if (s.key === key) s.dir = -s.dir;
+  else { s.key = key; s.dir = 1; }
+  renderDataTable();
+}
+
 function renderDataTable() {
-  const { rows, cols } = dataView;
-  const head = '<tr>' + cols.map(c => `<th>${escapeHtml(c.label)}</th>`).join('') + '</tr>';
-  const body = rows.map(r => '<tr>' + cols.map(c => {
+  const { cols, sort } = dataView;
+  const shown = currentDataRows();
+  const arrow = c => sort.key === c.key ? (sort.dir === 1 ? ' ▲' : ' ▼') : '';
+  const head = '<tr>' + cols.map(c =>
+    `<th onclick="setDataSort('${c.key}')" title="${escapeAttr(c.label)}">${escapeHtml(c.short)}${arrow(c)}</th>`
+  ).join('') + '</tr>';
+  const body = shown.map(r => '<tr>' + cols.map(c => {
     if (c.photo) return r.photoUrl ? `<td><a href="${escapeAttr(r.photoUrl)}" target="_blank" rel="noopener">보기</a></td>` : '<td></td>';
     let v = r[c.key];
     if (Array.isArray(v)) v = v.join(', ');
     return `<td>${escapeHtml(v == null ? '' : String(v))}</td>`;
   }).join('') + '</tr>').join('');
   const wrap = document.getElementById('dataTableWrap');
-  wrap.innerHTML = rows.length
+  wrap.innerHTML = shown.length
     ? `<table class="data-table"><thead>${head}</thead><tbody>${body}</tbody></table>`
-    : '<div class="data-loading">아직 기록이 없습니다.</div>';
+    : '<div class="data-loading">조건에 맞는 기록이 없습니다.</div>';
+  document.getElementById('dataCount').textContent = `${shown.length}건 / 총 ${dataView.rows.length}건`;
 }
 
 function downloadTopicCsv() {
-  const { topic, rows, cols } = dataView;
-  if (!topic || !rows.length) { showToast('내보낼 데이터가 없습니다.', 'error'); return; }
+  const { topic, cols } = dataView;
+  const shown = currentDataRows();
+  if (!topic || !shown.length) { showToast('내보낼 데이터가 없습니다.', 'error'); return; }
   const esc = v => { const s = String(v == null ? '' : v).replace(/"/g, '""'); return /[",\n]/.test(s) ? '"' + s + '"' : s; };
   const header = cols.map(c => esc(c.label)).join(',');
-  const lines = rows.map(r => cols.map(c => {
+  const lines = shown.map(r => cols.map(c => {
     if (c.photo) return esc(r.photoUrl || '');
     let v = r[c.key];
     if (Array.isArray(v)) v = v.join(' | ');
@@ -1680,6 +1755,7 @@ window.logout = logout;
 window.openDataModal = openDataModal;
 window.closeDataModal = closeDataModal;
 window.downloadTopicCsv = downloadTopicCsv;
+window.setDataSort = setDataSort;
 window.repickEcoLocation = repickEcoLocation;
 window.startEditRecord = startEditRecord;
 window.deleteSelectedRecord = deleteSelectedRecord;
