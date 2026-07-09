@@ -46,6 +46,14 @@
 - **주변환경 셀 형식**: JSON 배열 문자열 (`["A","B"]`) — 값에 콤마가 들어가는 경우(예: "높은 건물(아파트, 빌딩)") 안전하게 보존하기 위함
 - 레거시 콤마 구분 데이터도 `parseEnvironment_` 폴백으로 호환
 
+### 스프레드시트 `열섬` 시트 (앱 모달 입력 주제)
+| 타임스탬프 | 학교명 | 학번 | 이름 | 측정날짜 | 측정시간 | 날씨 | 측정장소 | 바닥상태 | 측정환경 | 열원 | 기온 | 사진URL |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|
+
+- **열섬은 구글폼이 아니라 앱 로그인 → 모달 제출**로 수집 (생태지도와 같은 방식). `HEADERS_HEAT` 상수가 열 정의.
+- `측정환경` 셀도 JSON 배열 문자열. 헤더는 `TOPIC_SHEETS['열섬'].fields`의 match 키워드를 포함하도록 명명 (매핑 확인: `?topic=열섬&mode=headers`).
+- 나머지 5개 주제(태양광·미세먼지·우리나라날씨·탄소배출·소리데이터)는 아직 **외부 구글폼 + 별도 스프레드시트** 방식. 앱 입력으로 전환하려면 이 열섬 패턴을 그대로 확장.
+
 ### GAS GET 응답
 ```json
 [
@@ -83,9 +91,10 @@ clasp push --force      # 로컬 → GAS 코드만 갱신
 → 배포 관리 → 기존 배포 [편집] → 버전 [새 버전] → 배포 (URL은 유지됨)
 
 ### 시트 초기화
-- 새 스프레드시트에 `Schools`/`Measurements` 시트와 헤더 자동 생성
+- 새 스프레드시트에 `Schools`/`Measurements`/`생태지도`/`열섬` 시트와 헤더 자동 생성
 - 웹 에디터에서 함수 `setupSheets` 선택 → ▶ 실행
 - idempotent — 여러 번 실행해도 안전
+- **앱 입력 주제를 새로 추가할 때**: `HEADERS_*` 상수 + `setupSheets`에 `ensureSheet_` 한 줄 + `TOPIC_SHEETS`에 `sheet`/`input`/`writeOrder`/`fields` 등록 + `js/topics.js`에 `input:true`+`inputFields` 추가
 
 ### 첫 GAS 실행 시
 - 권한 승인: "고급 → 안전하지 않음 → 프로젝트로 이동 → 허용"
@@ -147,10 +156,22 @@ clasp push --force      # 로컬 → GAS 코드만 갱신
 7. 특이사항 (선택된 기록의 메모)
 8. — 측정자: 이름
 
+## 로그인 / 입력 모델
+
+- **로그인 = 학교 비번 + 본인 입력** (별도 학생 명부 없음). 헤더 우상단 `[로그인]` → 학교 select + 학번 + 이름 + 학교 비밀번호.
+- 프론트: `POST {action:'login', school, password}` → 백엔드 `login_`이 비번 검증. 성공 시 `{school, studentId, name, password}`를 **`sessionStorage`(키 `scl_session`)** 에 저장. `getSession/setSession/clearSession`(`js/app.js`).
+- 로그인 상태에서 FAB(+) → 설문 모달. 학교·학번·이름·비번은 세션에서 자동 첨부(폼에 재입력 없음). 생태지도는 로그인 후 지도 클릭 → 모달.
+- 모달 폼은 **주제별 `inputFields` 스키마**(`js/topics.js`)로 동적 렌더(`renderModalFields`/`renderField`). 타입: text/number/date/time/select/checkbox/photo/coord.
+- 제출: `handleSubmit`이 세션 신원 + 스키마 값으로 payload 구성 → `POST`. 백엔드 `doPost` 라우팅:
+  1. `action:'login'` → `login_`
+  2. `topic:'생태지도'` → `submitEcomap_`(좌표 전용)
+  3. 그 외 `input:true` 주제 → **제네릭 `submitTopic_`** (`cfg.writeOrder` 순서로 시트 append, `cfg.fields`의 type으로 직렬화)
+
 ## 보안 모델
 
 - 학교별 비밀번호 — `Schools` 시트 D열에 평문 저장
-- 모든 사람이 지도/데이터를 볼 수 있음. **제출만** 학교 비번 일치 필요
+- 모든 사람이 지도/데이터를 볼 수 있음. **로그인·제출만** 학교 비번 일치 필요 (제출 시 서버에서 재검증)
+- 세션은 `sessionStorage`에 학교 비번 포함 저장 — 학교 단위 공유 비번이고 제출 시 재검증하므로 신뢰 모델상 허용. (개인별 비번이 필요해지면 강화 검토)
 - 사진은 Drive에 저장하면서 `ANYONE_WITH_LINK` 공유 — `https://drive.google.com/thumbnail?id=...`로 임베드
 - 학교 단위 협력 신뢰 모델. 외부에 무차별 공개 시 비번 정책 강화 필요
 

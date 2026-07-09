@@ -30,6 +30,12 @@ const HEADERS_ECOMAP = [
   '타임스탬프', '학교명', '학번', '이름', '위도', '경도',
   '관찰날짜', '장소설명', '생명체이름', '개체수', '온도', '습도', '사진URL'
 ];
+// 열섬: 앱 모달 입력 → 중앙 스프레드시트 로컬 시트에 저장.
+// 헤더는 TOPIC_SHEETS['열섬'].fields의 match 키워드를 포함하도록 명명한다.
+const HEADERS_HEAT = [
+  '타임스탬프', '학교명', '학번', '이름', '측정날짜', '측정시간',
+  '날씨', '측정장소', '바닥상태', '측정환경', '열원', '기온', '사진URL'
+];
 
 // ─────────────────────────────────────────────
 // 🔧 초기 설정 (Apps Script 에디터에서 1회만 실행)
@@ -49,6 +55,7 @@ function setupSheets() {
   ensureSheet_(ss, SHEET_SCHOOLS, HEADERS_SCHOOLS);
   ensureSheet_(ss, SHEET_MEASUREMENTS, HEADERS_MEASUREMENTS);
   ensureSheet_(ss, SHEET_ECOMAP, HEADERS_ECOMAP);
+  ensureSheet_(ss, '열섬', HEADERS_HEAT);
 
   // Schools 시트가 헤더만 있고 비어있으면 예시 1줄 추가
   const schoolsSheet = ss.getSheetByName(SHEET_SCHOOLS);
@@ -129,19 +136,82 @@ function doGet(e) {
 }
 
 // ─────────────────────────────────────────────
-// POST: 앱 입력 → topic 라우팅. 현재는 생태지도(지도 클릭 입력)만 처리.
+// POST: 앱 입력 → 액션/topic 라우팅.
+//   action:'login'  → 학교 비번 검증 (세션 로그인)
+//   topic:'생태지도' → 지도 클릭 관찰 입력 (좌표 포함, 전용 처리)
+//   그 외 input:true 주제 → 제네릭 submitTopic_ (중앙 시트에 append)
 //   공통: 학교 비번 검증 → Drive 사진 저장 → 시트 행 추가
 // ─────────────────────────────────────────────
 function doPost(e) {
   try {
     const data = JSON.parse(e.postData.contents);
+    if (data.action === 'login') {
+      return jsonOutput_(login_(data));
+    }
     if (data.topic === '생태지도') {
       return jsonOutput_(submitEcomap_(data));
+    }
+    const cfg = TOPIC_SHEETS[data.topic];
+    if (cfg && cfg.input) {
+      return jsonOutput_(submitTopic_(data));
     }
     return jsonOutput_({ ok: false, error: '알 수 없는 제출 유형입니다: ' + (data.topic || '(없음)') });
   } catch (err) {
     return jsonOutput_({ ok: false, error: String(err) });
   }
+}
+
+// 로그인: 학교 + 비번 검증. 성공 시 세션에 저장할 학교명 반환.
+function login_(data) {
+  const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+  const target = readSchools_(ss).find(s => s.name === data.school);
+  if (!target) return { ok: false, error: '등록되지 않은 학교입니다.' };
+  if (String(target.password) !== String(data.password)) {
+    return { ok: false, error: '비밀번호가 올바르지 않습니다.' };
+  }
+  return { ok: true, school: target.name };
+}
+
+// 제네릭 주제 제출: 비번 검증 → 사진 저장(선택) → cfg.writeOrder 순서로 시트에 append.
+// 필드 직렬화는 cfg.fields의 type을 참조 (number/tags/기본).
+function submitTopic_(data) {
+  const cfg = TOPIC_SHEETS[data.topic];
+  if (!cfg || !cfg.input || !cfg.sheet || !cfg.writeOrder) {
+    return { ok: false, error: '입력을 지원하지 않는 주제입니다: ' + (data.topic || '(없음)') };
+  }
+  const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+
+  // 1) 비밀번호 검증
+  const target = readSchools_(ss).find(s => s.name === data.school);
+  if (!target) return { ok: false, error: '등록되지 않은 학교입니다.' };
+  if (String(target.password) !== String(data.password)) {
+    return { ok: false, error: '비밀번호가 올바르지 않습니다.' };
+  }
+
+  const sheet = ss.getSheetByName(cfg.sheet);
+  if (!sheet) return { ok: false, error: cfg.sheet + ' 시트가 없습니다. setupSheets를 먼저 실행하세요.' };
+
+  // 2) 사진 저장 (선택)
+  let photoUrl = '';
+  if (data.photoBase64 && data.photoMimeType) {
+    photoUrl = savePhoto_(data.photoBase64, data.photoMimeType, data.school, data.studentName || '');
+  }
+
+  // 3) 필드 타입 맵 → 직렬화하며 헤더 순서(writeOrder)대로 행 구성
+  const typeOf = {};
+  cfg.fields.forEach(f => { typeOf[f.key] = f.type; });
+  const row = [new Date()].concat(cfg.writeOrder.map(k => {
+    if (k === 'photoUrl') return photoUrl;
+    const v = data[k];
+    switch (typeOf[k]) {
+      case 'number': return (v === '' || v === null || v === undefined) ? '' : Number(v);
+      case 'tags':   return JSON.stringify(Array.isArray(v) ? v : (v ? [v] : []));
+      default:       return (v === null || v === undefined) ? '' : v;
+    }
+  }));
+  sheet.appendRow(row);
+
+  return { ok: true };
 }
 
 // 생태지도 관찰 제출: 비번 검증 → 사진 저장 → 생태지도 시트에 좌표 포함 행 추가
@@ -285,12 +355,17 @@ const SOUND_SITUATION_OPTIONS = [
 // 열 매핑은 헤더 "키워드 포함 매칭"이라 폼 문구/순서가 조금 달라도 동작.
 // 매핑 확인: ?topic=열섬&mode=headers
 const TOPIC_SHEETS = {
+  // 열섬: 앱 모달 입력 → 중앙 스프레드시트 로컬 시트('열섬')에 저장. (구글폼 아님)
   '열섬': {
-    spreadsheetId: '1v1yWxwRfEPyInQNO92qhjtQCCfJQlEnWSYnxyJUB8Cg',
-    gid: 1045602112,
+    sheet: '열섬',        // spreadsheetId 없음 → SPREADSHEET_ID 사용
+    input: true,          // 앱 모달 제출 대상 (doPost → submitTopic_)
+    // 제출 시 시트 열 순서(HEADERS_HEAT의 타임스탬프 다음 열들과 일치)
+    writeOrder: ['school', 'studentId', 'studentName', 'date', 'time',
+                 'weather', 'location', 'surface', 'environment', 'heatSource', 'temp', 'photoUrl'],
     fields: [
       { key: 'school',      match: ['학교'] },
-      { key: 'studentName', match: ['학번'] },
+      { key: 'studentId',   match: ['학번'] },
+      { key: 'studentName', match: ['이름'] },
       { key: 'date',        match: ['날짜'], type: 'date' },
       { key: 'time',        match: ['시간'], type: 'time', exclude: ['타임', '시간대'] },
       { key: 'weather',     match: ['날씨'] },
@@ -298,7 +373,7 @@ const TOPIC_SHEETS = {
       { key: 'surface',     match: ['상태'] },
       { key: 'environment', match: ['환경'], type: 'tags', options: HEAT_ENV_OPTIONS },
       { key: 'heatSource',  match: ['열원'] },
-      { key: 'temp',        match: ['결과'], type: 'number' },
+      { key: 'temp',        match: ['기온'], type: 'number' },
       { key: 'photoUrl',    match: ['사진'], type: 'photo' }
     ]
   },
@@ -417,6 +492,14 @@ function readTopic_(topicKey) {
     return { ok: false, error: '응답 스프레드시트에 접근할 수 없습니다 (배포 계정의 열람 권한 확인): ' + e };
   }
   if (!sheet) {
+    // 앱 입력 주제인데 아직 시트가 없으면(= setupSheets 전) 학교만, 측정값은 빈 배열로 반환.
+    if (cfg.input) {
+      const schools0 = readSchools_(SpreadsheetApp.openById(SPREADSHEET_ID));
+      return {
+        topic: topicKey,
+        schools: schools0.map(s => ({ school: s.name, lat: s.lat, lng: s.lng, measurements: [] }))
+      };
+    }
     return { ok: false, error: '응답 시트를 찾지 못했습니다: ' + topicKey };
   }
 
@@ -507,15 +590,15 @@ function readTopicPoints_(topicKey) {
   return { topic: topicKey, observations: observations, schools: schoolNames };
 }
 
-// 응답 스프레드시트에서 데이터 탭 선택: gid 우선, 없으면 첫 탭
+// 응답 스프레드시트에서 데이터 탭 선택: gid 우선, 없으면 이름, 둘 다 없으면 첫 탭.
+// cfg.sheet가 지정됐는데 그 이름의 탭이 없으면 null (엉뚱한 첫 탭을 읽지 않도록).
 function getResponseSheet_(ss, cfg) {
   if (cfg.gid !== undefined && cfg.gid !== null) {
     const byGid = ss.getSheets().filter(sh => sh.getSheetId() === cfg.gid)[0];
     if (byGid) return byGid;
   }
   if (cfg.sheet) {
-    const byName = ss.getSheetByName(cfg.sheet);
-    if (byName) return byName;
+    return ss.getSheetByName(cfg.sheet) || null;
   }
   return ss.getSheets()[0];
 }

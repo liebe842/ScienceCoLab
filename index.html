@@ -32,6 +32,13 @@
 <body>
 
   <div class="header">
+    <div id="authArea" class="auth-area">
+      <button type="button" id="loginBtn" class="auth-btn" onclick="openLoginModal()">로그인</button>
+      <span id="authUser" class="auth-user" hidden>
+        <span id="authUserText"></span>
+        <button type="button" class="auth-logout" onclick="logout()">로그아웃</button>
+      </span>
+    </div>
     <h1>🌡️ ScienceCoLab</h1>
     <p>학교 간 공동 탐구 — 함께 측정하고, 함께 발견해요</p>
     <nav class="topic-chips" id="topicChips"></nav>
@@ -81,32 +88,22 @@
   </div>
 
   <!-- 우측 하단 FAB: 생태 관찰 기록 추가 (생태지도 주제에서만 표시) -->
-  <button id="fab" class="fab" title="관찰 기록 추가" onclick="startEcoInput()">+</button>
+  <button id="fab" class="fab" title="측정 기록 추가" onclick="onFabClick()">+</button>
 
   <!-- 지도 위치 찍기 안내 배너 -->
   <div id="pickBanner" class="pick-banner">📍 지도를 눌러 관찰한 위치를 찍으세요 <button type="button" onclick="cancelEcoInput()">취소</button></div>
 
-  <!-- 생태 관찰 입력 모달 -->
-  <div id="modalBackdrop" class="modal-backdrop">
-    <div class="modal" role="dialog" aria-labelledby="modalTitle">
+  <!-- 로그인 모달 -->
+  <div id="loginBackdrop" class="modal-backdrop">
+    <div class="modal modal-narrow" role="dialog" aria-labelledby="loginTitle">
       <div class="modal-header">
-        <h2 id="modalTitle">🌿 생태 관찰 기록</h2>
-        <button type="button" class="close-btn" onclick="closeModal()">✕</button>
+        <h2 id="loginTitle">🔑 로그인</h2>
+        <button type="button" class="close-btn" onclick="closeLoginModal()">✕</button>
       </div>
-      <form id="submitForm" class="modal-form" onsubmit="handleSubmit(event)">
-        <div class="picked-coord">
-          <span>📍 찍은 위치: <strong id="f-coord-text">-</strong></span>
-          <button type="button" class="btn-link" onclick="repickEcoLocation()">지도에서 다시 찍기</button>
-          <input type="hidden" name="lat" id="f-lat" />
-          <input type="hidden" name="lng" id="f-lng" />
-        </div>
+      <form id="loginForm" class="modal-form" onsubmit="handleLogin(event)">
         <label>
           <span>학교 <em>*</em></span>
-          <select name="school" id="f-school" required></select>
-        </label>
-        <label>
-          <span>학교 비밀번호 <em>*</em></span>
-          <input type="password" name="password" required autocomplete="off" />
+          <select name="school" id="login-school" required></select>
         </label>
         <div class="form-row">
           <label>
@@ -119,36 +116,27 @@
           </label>
         </div>
         <label>
-          <span>관찰 날짜 <em>*</em></span>
-          <input type="date" name="date" id="f-date" required />
+          <span>학교 비밀번호 <em>*</em></span>
+          <input type="password" name="password" required autocomplete="off" />
         </label>
-        <label>
-          <span>관찰 장소 설명 <em>*</em></span>
-          <input type="text" name="location" required maxlength="60" placeholder="예: 운동장 화단 옆" />
-        </label>
-        <label>
-          <span>관찰한 생명체 (동물·식물) <em>*</em></span>
-          <input type="text" name="species" required maxlength="40" placeholder="예: 민들레, 참새" />
-        </label>
-        <label>
-          <span>개체 수 <em>*</em></span>
-          <input type="number" name="count" min="1" step="1" required placeholder="12" />
-        </label>
-        <div class="form-row">
-          <label>
-            <span>온도 (℃) <span class="opt">식물이면</span></span>
-            <input type="number" name="temp" step="0.1" />
-          </label>
-          <label>
-            <span>습도 (%) <span class="opt">식물이면</span></span>
-            <input type="number" name="humidity" min="0" max="100" step="1" />
-          </label>
+        <div class="form-actions">
+          <button type="button" class="btn-secondary" onclick="closeLoginModal()">취소</button>
+          <button type="submit" class="btn-primary" id="loginSubmitBtn">로그인</button>
         </div>
-        <label>
-          <span>관찰 사진 <em>*</em></span>
-          <input type="file" name="photo" id="f-photo" accept="image/*" capture="environment" required />
-          <img id="photoPreview" class="photo-preview" alt="" />
-        </label>
+      </form>
+    </div>
+  </div>
+
+  <!-- 설문 입력 모달 (주제별 inputFields 기준으로 본문 동적 렌더) -->
+  <div id="modalBackdrop" class="modal-backdrop">
+    <div class="modal" role="dialog" aria-labelledby="modalTitle">
+      <div class="modal-header">
+        <h2 id="modalTitle">측정 기록</h2>
+        <button type="button" class="close-btn" onclick="closeModal()">✕</button>
+      </div>
+      <form id="submitForm" class="modal-form" onsubmit="handleSubmit(event)">
+        <div id="modalIdentity" class="modal-identity"></div>
+        <div id="modalFields"></div>
         <div class="form-actions">
           <button type="button" class="btn-secondary" onclick="closeModal()">취소</button>
           <button type="submit" class="btn-primary" id="submitBtn">제출</button>

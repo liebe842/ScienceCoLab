@@ -788,3 +788,77 @@ body {
   font-weight: 400;
   margin-left: 4px;
 }
+
+/* ───── 로그인 상태 (헤더 우상단) ───── */
+.auth-area {
+  position: absolute;
+  top: 14px; right: 18px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+}
+.auth-btn {
+  background: #5b8def;
+  color: #fff;
+  border: none;
+  border-radius: 14px;
+  padding: 5px 14px;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.auth-btn:hover { background: #4a6dc7; }
+.auth-user { display: inline-flex; align-items: center; gap: 8px; color: #4a5670; }
+.auth-user #authUserText { font-weight: 600; }
+.auth-logout {
+  background: #f4f6fa;
+  color: #777;
+  border: 1px solid #e0e6f0;
+  border-radius: 12px;
+  padding: 3px 10px;
+  font-size: 11px;
+  cursor: pointer;
+}
+.auth-logout:hover { background: #eaeef6; color: #555; }
+
+/* ───── 로그인/설문 모달 보조 ───── */
+.modal-narrow { max-width: 380px; }
+.modal-identity {
+  background: #e8eef9;
+  border: 1px solid #d4e0f5;
+  border-radius: 10px;
+  padding: 9px 12px;
+  font-size: 13px;
+  color: #4a5670;
+}
+.modal-identity strong { color: #2d3e5e; font-weight: 700; }
+
+/* 스키마 기반 체크박스 그룹 */
+.field-group {
+  border: 1px solid #eef0f5;
+  border-radius: 10px;
+  padding: 10px 14px 12px;
+}
+.field-group-label {
+  display: block;
+  font-size: 12px;
+  color: #4a5670;
+  margin-bottom: 2px;
+}
+.field-group-label em { color: #e85a5a; font-style: normal; margin-left: 2px; }
+.cb-list { display: flex; flex-direction: column; }
+.cb-list .cb {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  margin-top: 8px;
+  font-size: 13px;
+  color: #555;
+  line-height: 1.4;
+}
+.cb-list .cb input { width: auto; margin-top: 2px; }
+
+@media (max-width: 600px) {
+  .auth-area { top: 10px; right: 12px; }
+}

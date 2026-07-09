@@ -11,6 +11,12 @@
 //   marker       지도 알약 마커 대표값(학교 평균) + 색상 스케일
 //                key가 파생값(예: total)이면 데이터 레코드에 그 값이 들어있어야 함
 
+// 열섬 '측정 환경' 체크박스 옵션 (Code.gs의 HEAT_ENV_OPTIONS와 동일하게 유지할 것)
+const HEAT_ENV_OPTIONS = [
+  '주변에 건물이 많음', '나무가 많아 그늘짐', '차량 통행이 잦음',
+  '주변에 물(분수, 연못 등)이 있음', '사람들의 이동이 많은 개방된 공간'
+];
+
 const TOPIC_FMT = {
   num(v) {
     if (v === null || v === undefined || isNaN(v)) return '-';
@@ -29,6 +35,24 @@ const TOPICS = {
     label: '열섬',
     icon: '🔥',
     apiTopic: '열섬',
+    input: true,                 // 앱 모달 입력 (Forms 아님) → 로그인 후 설문 제출
+    inputTitle: '🔥 열섬 측정 기록',
+    inputFields: [
+      { key: 'date',        label: '측정 날짜', type: 'date',   required: true },
+      { key: 'time',        label: '측정 시간', type: 'time',   required: true },
+      { key: 'weather',     label: '날씨',      type: 'select', required: true,
+        options: ['맑음', '구름조금', '흐림', '비', '눈'] },
+      { key: 'location',    label: '측정 장소', type: 'text',   required: true, maxlength: 60,
+        placeholder: '예: 운동장 한가운데' },
+      { key: 'surface',     label: '바닥 상태', type: 'select', required: true,
+        options: ['아스팔트', '콘크리트', '보도블록', '흙', '잔디', '모래', '기타'] },
+      { key: 'environment', label: '측정 환경', type: 'checkbox', options: HEAT_ENV_OPTIONS },
+      { key: 'heatSource',  label: '주변 열원', type: 'text', maxlength: 60,
+        placeholder: '예: 에어컨 실외기, 자동차 (없으면 비워두기)' },
+      { key: 'temp',        label: '기온 (℃)', type: 'number', step: 0.1, required: true,
+        placeholder: '예: 31.4' },
+      { key: 'photo',       label: '측정 사진', type: 'photo', required: true }
+    ],
     chartMetrics: [
       { key: 'temp', label: '온도 (℃)', unit: '℃', color: '#d96b3e', axis: 'y' }
     ],
@@ -221,6 +245,19 @@ const TOPICS = {
     apiTopic: '생태지도',
     pointMode: true,            // 학교 집계가 아닌 관찰 지점별 핀 + 클러스터
     input: true,                // 앱 내 지도 클릭 입력 (Forms 아님)
+    inputTitle: '🌿 생태 관찰 기록',
+    inputFields: [
+      { key: 'coord',    type: 'coord' },   // 지도에서 찍은 위치 (특수 렌더)
+      { key: 'date',     label: '관찰 날짜', type: 'date', required: true },
+      { key: 'location', label: '관찰 장소 설명', type: 'text', required: true, maxlength: 60,
+        placeholder: '예: 운동장 화단 옆' },
+      { key: 'species',  label: '관찰한 생명체 (동물·식물)', type: 'text', required: true, maxlength: 40,
+        placeholder: '예: 민들레, 참새' },
+      { key: 'count',    label: '개체 수', type: 'number', required: true, min: 1, step: 1, placeholder: '12' },
+      { key: 'temp',     label: '온도 (℃)', type: 'number', step: 0.1, optionalNote: '식물이면' },
+      { key: 'humidity', label: '습도 (%)', type: 'number', min: 0, max: 100, step: 1, optionalNote: '식물이면' },
+      { key: 'photo',    label: '관찰 사진', type: 'photo', required: true }
+    ],
     chartMetrics: [],
     barMode: 'group',
     groupBy: null,

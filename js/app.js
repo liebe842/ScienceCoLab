@@ -40,10 +40,116 @@ function initApp() {
   updateMarkerScale();
 
   renderTopicChips();
+  renderAuthArea();
   updateFabVisibility();
   // 생태지도 위치 찍기용 지도 클릭 리스너 (pickingLocation일 때만 동작)
   kakao.maps.event.addListener(map, 'click', onMapClickForPick);
   loadData();
+}
+
+// ─────────────────────────────────────────────
+// 로그인 세션 (sessionStorage) — 학교 비번 + 본인 입력 기반
+// 신뢰 모델: 학교 단위 공유 비번, 제출 시 서버 재검증. (CLAUDE.md 보안 모델 참조)
+// ─────────────────────────────────────────────
+const SESSION_KEY = 'scl_session';
+
+function getSession() {
+  try { return JSON.parse(sessionStorage.getItem(SESSION_KEY) || 'null'); }
+  catch (e) { return null; }
+}
+function setSession(s) { sessionStorage.setItem(SESSION_KEY, JSON.stringify(s)); renderAuthArea(); }
+function clearSession() { sessionStorage.removeItem(SESSION_KEY); renderAuthArea(); }
+function isLoggedIn() { return !!getSession(); }
+
+function renderAuthArea() {
+  const s = getSession();
+  const loginBtn = document.getElementById('loginBtn');
+  const userWrap = document.getElementById('authUser');
+  const userText = document.getElementById('authUserText');
+  if (!loginBtn || !userWrap) return;
+  if (s) {
+    loginBtn.hidden = true;
+    userWrap.hidden = false;
+    if (userText) userText.textContent = `${s.school} · ${s.studentName}`;
+  } else {
+    loginBtn.hidden = false;
+    userWrap.hidden = true;
+  }
+}
+
+function openLoginModal() {
+  populateSchoolOptions('login-school');
+  document.getElementById('loginBackdrop').classList.add('open');
+}
+function closeLoginModal() {
+  document.getElementById('loginBackdrop').classList.remove('open');
+  const f = document.getElementById('loginForm');
+  if (f) f.reset();
+}
+
+async function handleLogin(e) {
+  e.preventDefault();
+  const btn = document.getElementById('loginSubmitBtn');
+  const fd = new FormData(e.target);
+  const cred = {
+    school: fd.get('school'),
+    studentId: fd.get('studentId'),
+    studentName: fd.get('studentName'),
+    password: fd.get('password')
+  };
+  if (!cred.school) { showToast('학교를 선택해 주세요.', 'error'); return; }
+
+  btn.disabled = true;
+  btn.textContent = '확인 중...';
+  try {
+    // 시연 모드: 백엔드 검증 없이 로그인
+    if (typeof MOCK_MODE !== 'undefined' && MOCK_MODE) {
+      setSession(cred);
+      showToast('시연 모드: 로그인되었습니다 (검증 생략)', 'success');
+      closeLoginModal();
+      return;
+    }
+    const res = await fetch(CONFIG.GAS_API_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+      body: JSON.stringify({ action: 'login', school: cred.school, password: cred.password })
+    });
+    const result = await res.json();
+    if (!result.ok) {
+      showToast(result.error || '로그인에 실패했습니다.', 'error');
+      return;
+    }
+    setSession(cred);
+    showToast('로그인되었습니다 ✓', 'success');
+    closeLoginModal();
+  } catch (err) {
+    console.error(err);
+    showToast('네트워크 오류로 로그인에 실패했습니다.', 'error');
+  } finally {
+    btn.disabled = false;
+    btn.textContent = '로그인';
+  }
+}
+
+function logout() {
+  clearSession();
+  showToast('로그아웃되었습니다.', '');
+}
+
+// FAB(+) 클릭: 로그인 확인 → 주제별 입력 시작
+function onFabClick() {
+  const topic = currentTopic();
+  if (!topic.input) return;
+  if (!isLoggedIn()) {
+    showToast('먼저 로그인해 주세요.', 'error');
+    openLoginModal();
+    return;
+  }
+  if (topic.pointMode) {
+    startEcoInput();   // 생태지도: 지도에서 위치 먼저 찍기
+  } else {
+    openModal();       // 집계형(열섬 등): 바로 설문 모달
+  }
 }
 
 // 앱 입력(FAB)은 input:true 주제(생태지도)에서만 표시
@@ -670,15 +776,19 @@ function repickEcoLocation() {
 }
 
 // ─────────────────────────────────────────────
-// 입력 모달
+// 입력 모달 — currentTopic().inputFields 기준으로 본문 동적 렌더
 // ─────────────────────────────────────────────
 function openModal() {
-  populateSchoolSelect();
+  const topic = currentTopic();
+  renderModalIdentity();
+  renderModalFields(topic);
   prefillDate();
-  const coordText = document.getElementById('f-coord-text');
-  if (pickedLatLng) {
-    document.getElementById('f-lat').value = pickedLatLng.lat;
-    document.getElementById('f-lng').value = pickedLatLng.lng;
+  if (topic.pointMode && pickedLatLng) {
+    const latEl = document.getElementById('f-lat');
+    const lngEl = document.getElementById('f-lng');
+    const coordText = document.getElementById('f-coord-text');
+    if (latEl) latEl.value = pickedLatLng.lat;
+    if (lngEl) lngEl.value = pickedLatLng.lng;
     if (coordText) coordText.textContent = `${pickedLatLng.lat.toFixed(5)}, ${pickedLatLng.lng.toFixed(5)}`;
   }
   document.getElementById('modalBackdrop').classList.add('open');
@@ -694,8 +804,78 @@ function closeModal() {
   pickedLatLng = null;
 }
 
-function populateSchoolSelect() {
-  const select = document.getElementById('f-school');
+// 로그인한 신원 요약 (학교·학번·이름) — 폼에서 재입력 없이 세션값 사용
+function renderModalIdentity() {
+  const el = document.getElementById('modalIdentity');
+  if (!el) return;
+  const s = getSession();
+  el.innerHTML = s
+    ? `제출자: <strong>${escapeHtml(s.school)}</strong> · ${escapeHtml(s.studentId)} ${escapeHtml(s.studentName)}`
+    : '';
+}
+
+function renderModalFields(topic) {
+  const title = document.getElementById('modalTitle');
+  if (title) title.textContent = topic.inputTitle || (topic.label + ' 기록');
+  const container = document.getElementById('modalFields');
+  if (container) container.innerHTML = (topic.inputFields || []).map(renderField).join('');
+}
+
+// 입력 스키마 필드 1개 → HTML
+function renderField(f) {
+  const req = f.required ? ' <em>*</em>' : '';
+  const note = f.optionalNote ? ` <span class="opt">${escapeHtml(f.optionalNote)}</span>` : '';
+
+  if (f.type === 'coord') {
+    return `<div class="picked-coord">
+        <span>📍 찍은 위치: <strong id="f-coord-text">-</strong></span>
+        <button type="button" class="btn-link" onclick="repickEcoLocation()">지도에서 다시 찍기</button>
+        <input type="hidden" name="lat" id="f-lat" />
+        <input type="hidden" name="lng" id="f-lng" />
+      </div>`;
+  }
+
+  const label = `<span>${escapeHtml(f.label)}${req}${note}</span>`;
+
+  if (f.type === 'select') {
+    const opts = ['<option value="">선택하세요</option>']
+      .concat((f.options || []).map(o => `<option value="${escapeAttr(o)}">${escapeHtml(o)}</option>`))
+      .join('');
+    return `<label>${label}<select name="${escapeAttr(f.key)}"${f.required ? ' required' : ''}>${opts}</select></label>`;
+  }
+
+  if (f.type === 'checkbox') {
+    const boxes = (f.options || []).map(o =>
+      `<label class="cb"><input type="checkbox" name="${escapeAttr(f.key)}" value="${escapeAttr(o)}" /> ${escapeHtml(o)}</label>`
+    ).join('');
+    return `<div class="field-group">
+        <span class="field-group-label">${escapeHtml(f.label)}${req}</span>
+        <div class="cb-list">${boxes}</div>
+      </div>`;
+  }
+
+  if (f.type === 'photo') {
+    return `<label>${label}
+        <input type="file" name="photo" id="f-photo" accept="image/*" capture="environment"${f.required ? ' required' : ''} />
+        <img id="photoPreview" class="photo-preview" alt="" />
+      </label>`;
+  }
+
+  // text / number / date / time
+  const t = (f.type === 'number' || f.type === 'date' || f.type === 'time') ? f.type : 'text';
+  const attrs = [`type="${t}"`, `name="${escapeAttr(f.key)}"`];
+  if (f.required) attrs.push('required');
+  if (f.maxlength !== undefined) attrs.push(`maxlength="${f.maxlength}"`);
+  if (f.min !== undefined) attrs.push(`min="${f.min}"`);
+  if (f.max !== undefined) attrs.push(`max="${f.max}"`);
+  if (f.step !== undefined) attrs.push(`step="${f.step}"`);
+  if (f.placeholder) attrs.push(`placeholder="${escapeAttr(f.placeholder)}"`);
+  if (f.key === 'date') attrs.push('id="f-date"');
+  return `<label>${label}<input ${attrs.join(' ')} /></label>`;
+}
+
+function populateSchoolOptions(selectId) {
+  const select = document.getElementById(selectId);
   if (!select) return;
   const current = select.value;
   const names = (schoolNames && schoolNames.length) ? schoolNames : schoolsData.map(s => s.school);
@@ -712,11 +892,12 @@ function prefillDate() {
   if (el) el.value = `${now.getFullYear()}-${mm}-${dd}`;
 }
 
-// 사진 미리보기 + "기타" 선택 시 직접 입력 칸 토글
+// 사진 미리보기
 document.addEventListener('change', (e) => {
   if (e.target && e.target.id === 'f-photo') {
     const file = e.target.files[0];
     const preview = document.getElementById('photoPreview');
+    if (!preview) return;
     if (!file) {
       preview.classList.remove('show');
       return;
@@ -728,45 +909,55 @@ document.addEventListener('change', (e) => {
     };
     reader.readAsDataURL(file);
   }
-
-  if (e.target && e.target.id === 'f-location') {
-    const otherInput = document.getElementById('f-location-other');
-    if (e.target.value === '기타') {
-      otherInput.classList.add('show');
-      otherInput.required = true;
-      otherInput.focus();
-    } else {
-      otherInput.classList.remove('show');
-      otherInput.required = false;
-      otherInput.value = '';
-    }
-  }
-
-  if (e.target && e.target.id === 'f-env-other-cb') {
-    const otherInput = document.getElementById('f-env-other');
-    if (e.target.checked) {
-      otherInput.classList.add('show');
-      otherInput.focus();
-    } else {
-      otherInput.classList.remove('show');
-      otherInput.value = '';
-    }
-  }
 });
 
-// 제출 핸들러 (생태 관찰)
+// 제출 핸들러 (모든 input:true 주제 공통) — 세션 신원 + 스키마 필드로 payload 구성
 async function handleSubmit(e) {
   e.preventDefault();
   const form = e.target;
+  const topic = currentTopic();
   const submitBtn = document.getElementById('submitBtn');
+
+  const session = getSession();
+  if (!session) {
+    showToast('로그인이 필요합니다.', 'error');
+    openLoginModal();
+    return;
+  }
+
   const fd = new FormData(form);
 
-  if (!pickedLatLng) {
+  // pointMode(생태지도) 좌표 필수
+  if (topic.pointMode && !pickedLatLng) {
     showToast('지도에서 관찰 위치를 먼저 찍어주세요.', 'error');
     return;
   }
-  const photoFile = fd.get('photo');
-  if (!photoFile || !photoFile.size) {
+
+  // 세션 신원 + topic 기본 payload
+  const payload = {
+    topic: topic.apiTopic,
+    school: session.school,
+    password: session.password,
+    studentId: session.studentId,
+    studentName: session.studentName
+  };
+  if (topic.pointMode && pickedLatLng) {
+    payload.lat = pickedLatLng.lat;
+    payload.lng = pickedLatLng.lng;
+  }
+
+  // 스키마 필드 수집
+  let photoFile = null;
+  (topic.inputFields || []).forEach(f => {
+    if (f.type === 'coord') return;
+    if (f.type === 'photo') { photoFile = fd.get('photo'); return; }
+    if (f.type === 'checkbox') { payload[f.key] = fd.getAll(f.key); return; }
+    payload[f.key] = fd.get(f.key);
+  });
+
+  // 사진 필수 검사
+  const photoField = (topic.inputFields || []).find(f => f.type === 'photo');
+  if (photoField && photoField.required && (!photoFile || !photoFile.size)) {
     showToast('사진을 첨부해 주세요.', 'error');
     return;
   }
@@ -775,32 +966,20 @@ async function handleSubmit(e) {
   submitBtn.textContent = '제출 중...';
 
   try {
-    const { base64, mimeType } = await resizeImage(photoFile, 1024, 0.85);
+    if (photoFile && photoFile.size) {
+      const { base64, mimeType } = await resizeImage(photoFile, 1024, 0.85);
+      payload.photoBase64 = base64;
+      payload.photoMimeType = mimeType;
+    }
 
-    const payload = {
-      topic: '생태지도',
-      school: fd.get('school'),
-      password: fd.get('password'),
-      studentId: fd.get('studentId'),
-      studentName: fd.get('studentName'),
-      date: fd.get('date'),
-      lat: pickedLatLng.lat,
-      lng: pickedLatLng.lng,
-      location: fd.get('location'),
-      species: fd.get('species'),
-      count: fd.get('count'),
-      temp: fd.get('temp'),
-      humidity: fd.get('humidity'),
-      photoBase64: base64,
-      photoMimeType: mimeType
-    };
-
-    // 시연 모드: 백엔드 없이 화면에만 추가 (저장 안 됨)
+    // 시연 모드: 백엔드 없이 화면에만 반영 (저장 안 됨)
     if (typeof MOCK_MODE !== 'undefined' && MOCK_MODE) {
-      addMockObservation(payload);
-      showToast('시연 모드: 관찰이 지도에 추가되었습니다 (저장 안 됨)', 'success');
+      showToast('시연 모드: 제출은 저장되지 않습니다', 'success');
+      if (topic.pointMode) {
+        addMockObservation(payload);
+        renderPointMarkers(observationsData);
+      }
       closeModal();
-      renderPointMarkers(observationsData);
       return;
     }
 
@@ -815,7 +994,7 @@ async function handleSubmit(e) {
     if (!result.ok) {
       showToast(result.error || '제출에 실패했습니다.', 'error');
     } else {
-      showToast('관찰 기록이 등록되었습니다 ✓', 'success');
+      showToast('기록이 등록되었습니다 ✓', 'success');
       closeModal();
       await loadData(true); // 캐시 무시하고 새로 불러오기
     }
@@ -928,3 +1107,9 @@ window.closeModal = closeModal;
 window.handleSubmit = handleSubmit;
 window.closeSidebar = closeSidebar;
 window.closeLightbox = closeLightbox;
+window.onFabClick = onFabClick;
+window.openLoginModal = openLoginModal;
+window.closeLoginModal = closeLoginModal;
+window.handleLogin = handleLogin;
+window.logout = logout;
+window.repickEcoLocation = repickEcoLocation;
