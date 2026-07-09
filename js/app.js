@@ -992,10 +992,21 @@ function prefillFields(record) {
     if (f.type === 'coord' || f.type === 'photo') return;
     const val = record[f.key];
     if (f.type === 'checkbox') {
-      const set = new Set(Array.isArray(val) ? val.map(String) : (val ? [String(val)] : []));
+      const arr = Array.isArray(val) ? val.map(String) : (val ? [String(val)] : []);
+      const set = new Set(arr);
       document.querySelectorAll(`#modalFields input[name="${cssEscape(f.key)}"]`).forEach(cb => {
         cb.checked = set.has(cb.value);
       });
+      // 옵션에 없는 값 = '기타' 직접입력 → 기타 체크 + 텍스트 채움
+      if (f.other) {
+        const custom = arr.find(v => (f.options || []).indexOf(v) === -1);
+        const otherCb = document.querySelector(`#modalFields input[data-cbother="${cssEscape(f.key)}"]`);
+        const otherEl = document.getElementById('cbother-' + f.key);
+        if (custom) {
+          if (otherCb) otherCb.checked = true;
+          if (otherEl) { otherEl.hidden = false; otherEl.value = custom; }
+        } else if (otherEl) { otherEl.hidden = true; otherEl.value = ''; }
+      }
     } else if (f.type === 'select' && f.other) {
       // 저장값이 옵션에 없으면 커스텀 → '기타' + 텍스트 입력에 표시
       const sel = document.querySelector(`#modalFields [name="${cssEscape(f.key)}"]`);
@@ -1092,12 +1103,17 @@ function renderField(f) {
   }
 
   if (f.type === 'checkbox') {
-    const boxes = (f.options || []).map(o =>
-      `<label class="cb"><input type="checkbox" name="${escapeAttr(f.key)}" value="${escapeAttr(o)}" /> ${escapeHtml(o)}</label>`
-    ).join('');
+    const boxes = (f.options || []).map(o => {
+      const isOther = f.other && o === f.other;
+      return `<label class="cb"><input type="checkbox" name="${escapeAttr(f.key)}" value="${escapeAttr(o)}"${isOther ? ` data-cbother="${escapeAttr(f.key)}"` : ''} /> ${escapeHtml(o)}</label>`;
+    }).join('');
+    const otherInput = f.other
+      ? `<input type="text" class="other-input" id="cbother-${escapeAttr(f.key)}" maxlength="${f.maxlength || 60}" placeholder="${escapeAttr(f.otherPlaceholder || '직접 입력')}" hidden />`
+      : '';
     return `<div class="field-group">
         <span class="field-group-label">${escapeHtml(f.label)}${req}</span>
         <div class="cb-list">${boxes}</div>
+        ${otherInput}
       </div>`;
   }
 
@@ -1158,6 +1174,15 @@ document.addEventListener('change', (e) => {
       const show = e.target.value === e.target.dataset.other;
       other.hidden = !show;
       if (!show) other.value = '';
+      else other.focus();
+    }
+  }
+  // 체크박스 '기타' 체크 시 직접 입력 칸 노출
+  if (e.target && e.target.type === 'checkbox' && e.target.dataset.cbother) {
+    const other = document.getElementById('cbother-' + e.target.dataset.cbother);
+    if (other) {
+      other.hidden = !e.target.checked;
+      if (!e.target.checked) other.value = '';
       else other.focus();
     }
   }
@@ -1295,11 +1320,24 @@ async function handleSubmit(e) {
   // 스키마 필드 수집
   let photoFile = null;
   let otherMissing = false;
+  let reqCheckboxMissing = false;
   (topic.inputFields || []).forEach(f => {
     if (f.type === 'coord') return;
     if (f.type === 'photo') { photoFile = fd.get('photo'); return; }
-    if (f.type === 'checkbox') { payload[f.key] = fd.getAll(f.key); return; }
-    // '기타' 선택 시 아래 텍스트 입력값을 대신 사용
+    if (f.type === 'checkbox') {
+      let vals = fd.getAll(f.key);
+      // '기타' 체크 시 아래 텍스트 입력값으로 치환 (빈 값이면 제외)
+      if (f.other && vals.indexOf(f.other) > -1) {
+        vals = vals.filter(v => v !== f.other);
+        const otherEl = document.getElementById('cbother-' + f.key);
+        const t = otherEl ? otherEl.value.trim() : '';
+        if (t) vals.push(t);
+      }
+      if (f.required && vals.length === 0) reqCheckboxMissing = true;
+      payload[f.key] = vals;
+      return;
+    }
+    // select '기타' 선택 시 아래 텍스트 입력값을 대신 사용
     if (f.type === 'select' && f.other && fd.get(f.key) === f.other) {
       const otherEl = document.getElementById('other-' + f.key);
       const v = otherEl ? otherEl.value.trim() : '';
@@ -1310,6 +1348,7 @@ async function handleSubmit(e) {
     payload[f.key] = fd.get(f.key);
   });
 
+  if (reqCheckboxMissing) { showToast('필수 선택 항목을 하나 이상 선택해 주세요.', 'error'); return; }
   if (otherMissing) { showToast('"기타"를 선택한 항목의 내용을 입력해 주세요.', 'error'); return; }
 
   // 사진 필수 검사 (수정 시엔 기존 사진 유지되므로 재첨부 강제하지 않음)

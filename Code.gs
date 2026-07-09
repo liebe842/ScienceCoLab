@@ -558,7 +558,7 @@ const TOPIC_SHEETS = {
       { key: 'humidity',    match: ['습도'], type: 'number' },
       { key: 'weather',     match: ['날씨'] },
       { key: 'cleaning',    match: ['청소'] },
-      { key: 'airNote',     match: ['특이'] },
+      { key: 'airNote',     match: ['특이'], type: 'tags' },
       { key: 'photoUrl',    match: ['사진'], type: 'photo' }
     ]
   },
